@@ -1,0 +1,97 @@
+print(">>> FILE IS RUNNING <<<")
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
+import requests
+import json
+import os
+
+TOKEN = "8953879123:AAGRRihV_yxhMSSpkwdcAArtZyS3hUaUjaM"
+
+DATA_FILE = "users.json"
+
+# تحميل البيانات
+if os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "r") as f:
+        users = json.load(f)
+else:
+    users = {}
+
+# حفظ البيانات
+def save_users():
+    with open(DATA_FILE, "w") as f:
+        json.dump(users, f)
+
+# Chess.com API
+def get_elo(username):
+    url = f"https://api.chess.com/pub/player/{username}/stats"
+
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        data = r.json()
+    except:
+        return {"rapid": "Error", "blitz": "Error", "bullet": "Error"}
+
+    def safe(key):
+        try:
+            return data.get(key, {}).get("last", {}).get("rating", "N/A")
+        except:
+            return "N/A"
+
+    return {
+        "rapid": safe("chess_rapid"),
+        "blitz": safe("chess_blitz"),
+        "bullet": safe("chess_bullet")
+    }
+
+# START
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("اهلا بك في جروب Check Mate بقياده AHMED ESSAM👑👑🤝")
+
+# SIGN
+async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) == 0:
+        await update.message.reply_text("اكتب: /sign username")
+        return
+
+    user_id = str(update.effective_user.id)
+    username = context.args[0]
+
+    users[user_id] = username
+    save_users()
+
+    await update.message.reply_text(f"🤝✅chess.comتم ربط حسابك في: {username}")
+
+# ELO
+async def elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+
+    if update.message.reply_to_message:
+        user_id = str(update.message.reply_to_message.from_user.id)
+
+    if user_id not in users:
+        await update.message.reply_text("هذا الحساب غير مربوط بالبوت")
+        return
+
+    username = users[user_id]
+    rating = get_elo(username)
+
+    await update.message.reply_text(
+        f"""♟️ Chess.com Stats
+
+👤 {username}
+
+⚡ Rapid: {rating['rapid']}
+🔥 Blitz: {rating['blitz']}
+💣 Bullet: {rating['bullet']}"""
+    )
+
+# تشغيل البوت
+app = Application.builder().token(TOKEN).build()
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("sign", sign))
+app.add_handler(CommandHandler("elo", elo))
+
+app.run_polling()
