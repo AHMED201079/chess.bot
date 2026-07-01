@@ -1,30 +1,48 @@
 print(">>> FILE IS RUNNING <<<")
+
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 import requests
 import json
 import os
 
+# ⚠️ تنبيه: قم بتغيير هذا التوكن من BotFather فوراً لأن القديم تم كشفه
 TOKEN = "8953879123:AAGRRihV_yxhMSSpkwdcAArtZyS3hUaUjaM"
 
 DATA_FILE = "users.json"
+POINTS_FILE = "points.json"
 
-# تحميل البيانات
+# =========================
+# تحميل بيانات المستخدمين
+# =========================
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r") as f:
         users = json.load(f)
 else:
     users = {}
 
-# حفظ البيانات
+# =========================
+# تحميل النقاط
+# =========================
+if os.path.exists(POINTS_FILE):
+    with open(POINTS_FILE, "r") as f:
+        points = json.load(f)
+else:
+    points = {}
+
 def save_users():
     with open(DATA_FILE, "w") as f:
         json.dump(users, f)
 
-# Chess.com API
-def get_elo(username):
-    url = f"https://api.chess.com/pub/player/{username}/stats"
+def save_points():
+    with open(POINTS_FILE, "w") as f:
+        json.dump(points, f)
 
+# =========================
+# Chess API
+# =========================
+def get_elo(username):
+    url = f"https://chess.com{username}/stats"
     headers = {"User-Agent": "Mozilla/5.0"}
 
     try:
@@ -45,25 +63,52 @@ def get_elo(username):
         "bullet": safe("chess_bullet")
     }
 
-# START
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("اهلا بك في جروب Check Mate بقياده AHMED ESSAM👑👑🤝")
+# =========================
+# الرتب
+# =========================
+def get_rank(score):
+    if score < 50:
+        return "♙ مبتدئ"
+    elif score < 150:
+        return "♘ لاعب نشط"
+    elif score < 300:
+        return "♗ لاعب متقدم"
+    elif score < 500:
+        return "♖ خبير"
+    else:
+        return "👑 أسطورة"
 
+# =========================
+# الاسم
+# =========================
+def get_name(user):
+    if user.username:
+        return f"@{user.username}"
+    return user.first_name
+
+# =========================
+# START
+# =========================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("اهلا بك في جروب Check Mate 👑♟️")
+
+# =========================
 # SIGN
+# =========================
 async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0:
         await update.message.reply_text("اكتب: /sign username")
         return
 
     user_id = str(update.effective_user.id)
-    username = context.args[0]
-
-    users[user_id] = username
+    users[user_id] = context.args[0]
     save_users()
 
-    await update.message.reply_text(f"🤝✅chess.comتم ربط حسابك في: {username}")
+    await update.message.reply_text("تم ربط حسابك بنجاح ♟️")
 
+# =========================
 # ELO
+# =========================
 async def elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
 
@@ -71,27 +116,139 @@ async def elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.message.reply_to_message.from_user.id)
 
     if user_id not in users:
-        await update.message.reply_text("هذا الحساب غير مربوط بالبوت")
+        await update.message.reply_text("❌ هذا الحساب غير مربوط بموقع Chess.com")
         return
 
     username = users[user_id]
     rating = get_elo(username)
 
     await update.message.reply_text(
-        f"""♟️ Chess.com Stats
+        f"""♟️ Stats
 
-👤 {username}
+👤 Chess.com: {username}
 
 ⚡ Rapid: {rating['rapid']}
 🔥 Blitz: {rating['blitz']}
 💣 Bullet: {rating['bullet']}"""
     )
 
+# =========================
+# التحقق من الأدمن
+# =========================
+async def is_admin(update: Update, user_id: int):
+    try:
+        member = await update.effective_chat.get_member(user_id)
+        return member.status in ["administrator", "creator"]
+    except:
+        return False
+
+# =========================
+# نظام النقاط (المشرفين فقط)
+# =========================
+async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    text = msg.text.strip()
+
+    # التحقق من أن الرسالة تبدأ بـ + أو - لمنع التداخل مع المحادثات العادية
+    if not (text.startswith('+') or text.startswith('-')):
+        return
+
+    try:
+        value = int(text)
+    except ValueError:
+        return
+
+    if not msg.reply_to_message:
+        return
+
+    admin_id = update.effective_user.id
+
+    if not await is_admin(update, admin_id):
+        return  # تجاهل غير المشرفين بصمت لمنع الإزعاج في الجروب
+
+    target_user = msg.reply_to_message.from_user
+    if target_user.is_bot:
+        return
+
+    target_id = str(target_user.id)
+
+    # 🌟 تم التعديل هنا: إذا لم يكن له نقاط سابقة، يبدأ من 20 نقطة بدلاً من 0
+    points[target_id] = points.get(target_id, 20) + value
+    save_points()
+
+    score = points[target_id]
+    rank = get_rank(score)
+    name = get_name(target_user)
+
+    await msg.reply_text(
+        f"""🏆 تم تعديل النقاط
+
+👤 الاسم: {name}
+📊 النقاط: {score}
+🎖️ الرتبة: {rank}"""
+    )
+
+# =========================
+# عرض النقاط (لنفسك أو أي شخص)
+# =========================
+async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+
+    if msg.reply_to_message:
+        user = msg.reply_to_message.from_user
+    else:
+        user = msg.from_user
+
+    user_id = str(user.id)
+
+    # 🌟 تم التعديل هنا أيضاً: العضو الجديد تظهر نقاطه 20 تلقائياً
+    score = points.get(user_id, 20)
+    rank = get_rank(score)
+    name = get_name(user)
+
+    await msg.reply_text(
+        f"""📊 بيانات اللاعب
+
+👤 الاسم: {name}
+🏆 النقاط: {score}
+🎖️ الرتبة: {rank}"""
+    )
+
+# =========================
+# TOP (مع ميداليات)
+# =========================
+async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not points:
+        await update.message.reply_text("لا يوجد بيانات بعد")
+        return
+
+    sorted_users = sorted(points.items(), key=lambda x: x[1], reverse=True)[:10]
+    medals = ["🥇", "🥈", "🥉"]
+    text = "🏆 أفضل اللاعبين في الجروب:\n\n"
+
+    for i, (uid, score) in enumerate(sorted_users):
+        chess_name = users.get(uid, None)
+        display_name = f"Chess: {chess_name}" if chess_name else f"ID: {uid}"
+        
+        rank = get_rank(score)
+        medal = medals[i] if i < 3 else f"{i+1}."
+
+        text += f"{medal} {display_name} | {score} نقطة | {rank}\n"
+
+    await update.message.reply_text(text)
+
+# =========================
 # تشغيل البوت
+# =========================
 app = Application.builder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("sign", sign))
 app.add_handler(CommandHandler("elo", elo))
+app.add_handler(CommandHandler("points", mypoints))
+app.add_handler(CommandHandler("top", top))
+
+# فلتر لالتقاط الرسائل النصية في المجموعات (مع استثناء الأوامر)
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.SUPERGROUP | filters.ChatType.GROUP), handle_points))
 
 app.run_polling()
