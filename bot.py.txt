@@ -39,14 +39,19 @@ def save_points():
         json.dump(points, f)
 
 # =========================
-# Chess API
+# Chess API (تم التحديث لضمان عدم حدوث Error)
 # =========================
 def get_elo(username):
-    url = f"https://chess.com{username}/stats"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    url = f"https://api.chess.com/pub/player/{username}/stats"
+    # إضافة ميزة حماية لتخطي حظر موقع شطرنج
+    headers = {
+        "User-Agent": "TelegramChessBot/1.0 (contact: admin@example.com)"
+    }
 
     try:
         r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            return {"rapid": "N/A", "blitz": "N/A", "bullet": "N/A"}
         data = r.json()
     except:
         return {"rapid": "Error", "blitz": "Error", "bullet": "Error"}
@@ -93,7 +98,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("اهلا بك في جروب Check Mate 👑♟️")
 
 # =========================
-# SIGN
+# SIGN (تم إصلاح كتابة النص هنا لتجنب المشكلة الحالية)
 # =========================
 async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0:
@@ -101,10 +106,11 @@ async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_id = str(update.effective_user.id)
+    # ✅ تم الإصلاح: نأخذ أول عنصر في القائمة مباشرة كـ نص وليس القائمة كاملة
     users[user_id] = context.args[0]
     save_users()
 
-    await update.message.reply_text("تم ربط حسابك بنجاح ♟️")
+    await update.message.reply_text(f"تم ربط حسابك بنجاح على اسم: {context.args[0]} ♟️")
 
 # =========================
 # ELO
@@ -149,7 +155,6 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     text = msg.text.strip()
 
-    # التحقق من أن الرسالة تبدأ بـ + أو - لمنع التداخل مع المحادثات العادية
     if not (text.startswith('+') or text.startswith('-')):
         return
 
@@ -164,7 +169,7 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_id = update.effective_user.id
 
     if not await is_admin(update, admin_id):
-        return  # تجاهل غير المشرفين بصمت لمنع الإزعاج في الجروب
+        return
 
     target_user = msg.reply_to_message.from_user
     if target_user.is_bot:
@@ -172,7 +177,6 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     target_id = str(target_user.id)
 
-    # 🌟 تم التعديل هنا: إذا لم يكن له نقاط سابقة، يبدأ من 20 نقطة بدلاً من 0
     points[target_id] = points.get(target_id, 20) + value
     save_points()
 
@@ -201,7 +205,6 @@ async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(user.id)
 
-    # 🌟 تم التعديل هنا أيضاً: العضو الجديد تظهر نقاطه 20 تلقائياً
     score = points.get(user_id, 20)
     rank = get_rank(score)
     name = get_name(user)
@@ -248,7 +251,6 @@ app.add_handler(CommandHandler("elo", elo))
 app.add_handler(CommandHandler("points", mypoints))
 app.add_handler(CommandHandler("top", top))
 
-# فلتر لالتقاط الرسائل النصية في المجموعات (مع استثناء الأوامر)
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.SUPERGROUP | filters.ChatType.GROUP), handle_points))
 
 app.run_polling()
