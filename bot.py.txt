@@ -6,7 +6,6 @@ import requests
 import json
 import os
 
-# ⚠️ تنبيه: قم بتغيير هذا التوكن من BotFather فوراً لأن القديم تم كشفه
 TOKEN = "8953879123:AAGRRihV_yxhMSSpkwdcAArtZyS3hUaUjaM"
 
 DATA_FILE = "users.json"
@@ -39,19 +38,14 @@ def save_points():
         json.dump(points, f)
 
 # =========================
-# Chess API (تم التحديث لضمان عدم حدوث Error)
+# Chess API
 # =========================
 def get_elo(username):
-    url = f"https://api.chess.com/pub/player/{username}/stats"
-    # إضافة ميزة حماية لتخطي حظر موقع شطرنج
-    headers = {
-        "User-Agent": "TelegramChessBot/1.0 (contact: admin@example.com)"
-    }
+    url = f"https://chess.com{username}/stats"
+    headers = {"User-Agent": "Mozilla/5.0"}
 
     try:
         r = requests.get(url, headers=headers, timeout=10)
-        if r.status_code != 200:
-            return {"rapid": "N/A", "blitz": "N/A", "bullet": "N/A"}
         data = r.json()
     except:
         return {"rapid": "Error", "blitz": "Error", "bullet": "Error"}
@@ -98,7 +92,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("اهلا بك في جروب Check Mate 👑♟️")
 
 # =========================
-# SIGN (تم إصلاح كتابة النص هنا لتجنب المشكلة الحالية)
+# SIGN
 # =========================
 async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0:
@@ -106,11 +100,10 @@ async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_id = str(update.effective_user.id)
-    # ✅ تم الإصلاح: نأخذ أول عنصر في القائمة مباشرة كـ نص وليس القائمة كاملة
     users[user_id] = context.args[0]
     save_users()
 
-    await update.message.reply_text(f"🤝✅chess.comتم ربط حسابك في: {context.args[0]} ")
+    await update.message.reply_text("تم ربط حسابك بنجاح ♟️")
 
 # =========================
 # ELO
@@ -155,6 +148,7 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     text = msg.text.strip()
 
+    # التحقق من أن الرسالة تبدأ بـ + أو - لمنع التداخل مع المحادثات العادية
     if not (text.startswith('+') or text.startswith('-')):
         return
 
@@ -169,7 +163,7 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_id = update.effective_user.id
 
     if not await is_admin(update, admin_id):
-        return
+        return  # تجاهل غير المشرفين بصمت لمنع الإزعاج في الجروب
 
     target_user = msg.reply_to_message.from_user
     if target_user.is_bot:
@@ -177,6 +171,7 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     target_id = str(target_user.id)
 
+    # 🌟 تم التعديل هنا: إذا لم يكن له نقاط سابقة، يبدأ من 20 نقطة بدلاً من 0
     points[target_id] = points.get(target_id, 20) + value
     save_points()
 
@@ -205,6 +200,7 @@ async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(user.id)
 
+    # 🌟 تم التعديل هنا أيضاً: العضو الجديد تظهر نقاطه 20 تلقائياً
     score = points.get(user_id, 20)
     rank = get_rank(score)
     name = get_name(user)
@@ -218,7 +214,7 @@ async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # =========================
-# TOP (مع ميداليات)
+# TOP (تنسيق احترافي، منظم مع مسافات فارغة)
 # =========================
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not points:
@@ -227,18 +223,34 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     sorted_users = sorted(points.items(), key=lambda x: x[1], reverse=True)[:10]
     medals = ["🥇", "🥈", "🥉"]
-    text = "🏆 أفضل اللاعبين في الجروب:\n\n"
+    
+    text = "👑 <b>لــوحــة الـصـدارة | TOP 10</b> 👑\n"
+    text += "🏆 <i>أقوى اللاعبين متفاعلين في المجموعة:</i>\n"
+    text += "<code>" + "─" * 30 + "</code>\n"
 
     for i, (uid, score) in enumerate(sorted_users):
         chess_name = users.get(uid, None)
-        display_name = f"Chess: {chess_name}" if chess_name else f"ID: {uid}"
         
+        # قص الاسم الطويل لـ 10 أحرف كحد أقصى لمنع تخريب المحاذاة الجدولية
+        if chess_name:
+            name = str(chess_name)[:10]
+        else:
+            name = f"ID:{uid[:5]}"
+            
         rank = get_rank(score)
-        medal = medals[i] if i < 3 else f"{i+1}."
+        medal = medals[i] if i < 3 else f" {i+1}."
 
-        text += f"{medal} {display_name} | {score} نقطة | {rank}\n"
+        # استخدام الخط الموحد والـ Formatting لضبط محاذاة المسافات كالمسطرة
+        text += f"{medal} <code>{name:<11} | {score:>3}ن | {rank}</code>\n"
+        
+        # إضافة سطر فارغ تحت كل لاعب لزيادة التنظيم والشكل الاحترافي
+        text += "\n"
 
-    await update.message.reply_text(text)
+    text += "<code>" + "─" * 30 + "</code>\n"
+    text += "♟️ <i>استمر في التفاعل لانتزاع الصدارة!</i>"
+
+    # استخدام parse_mode="HTML" ليعمل التنسيق الجديد بشكل صحيح
+    await update.message.reply_text(text, parse_mode="HTML")
 
 # =========================
 # تشغيل البوت
@@ -251,6 +263,7 @@ app.add_handler(CommandHandler("elo", elo))
 app.add_handler(CommandHandler("points", mypoints))
 app.add_handler(CommandHandler("top", top))
 
+# فلتر لالتقاط الرسائل النصية في المجموعات (مع استثناء الأوامر)
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.SUPERGROUP | filters.ChatType.GROUP), handle_points))
 
 app.run_polling()
