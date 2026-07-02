@@ -110,7 +110,7 @@ async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users[user_id] = context.args[0]
     save_users()
 
-    await update.message.reply_text(f"تم ربط حسابك بنجاح على اسم: {context.args[0]} ♟️")
+    await update.message.reply_text(f"🤝✅chess.comتم ربط حسابك في: {context.args[0]} ")
 
 # =========================
 # ELO
