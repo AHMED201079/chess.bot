@@ -78,7 +78,7 @@ def get_rank(score):
         return "👑 أسطورة"
 
 # =========================
-# الاسم
+# الاسم (جلب اسم التليجرام)
 # =========================
 def get_name(user):
     if user.username:
@@ -148,7 +148,6 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     text = msg.text.strip()
 
-    # التحقق من أن الرسالة تبدأ بـ + أو - لمنع التداخل مع المحادثات العادية
     if not (text.startswith('+') or text.startswith('-')):
         return
 
@@ -163,7 +162,7 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_id = update.effective_user.id
 
     if not await is_admin(update, admin_id):
-        return  # تجاهل غير المشرفين بصمت لمنع الإزعاج في الجروب
+        return
 
     target_user = msg.reply_to_message.from_user
     if target_user.is_bot:
@@ -171,9 +170,17 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     target_id = str(target_user.id)
 
-    # 🌟 تم التعديل هنا: إذا لم يكن له نقاط سابقة، يبدأ من 20 نقطة بدلاً من 0
+    # حفظ يوزر التليجرام أو الاسم الأول الخاص باللاعب لتحديث التوب لاحقاً بنفس اللحظة
+    tg_name = f"@{target_user.username}" if target_user.username else target_user.first_name
     points[target_id] = points.get(target_id, 20) + value
+    
+    # ميزة ذكية مضافة: حفظ بيانات يوزر التليجرام للرجوع إليها في لوحة الصدارة
+    if "tg_names" not in users or not isinstance(users.get("tg_names"), dict):
+        users["tg_names"] = {}
+    users["tg_names"][target_id] = tg_name
+    
     save_points()
+    save_users()
 
     score = points[target_id]
     rank = get_rank(score)
@@ -200,10 +207,15 @@ async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(user.id)
 
-    # 🌟 تم التعديل هنا أيضاً: العضو الجديد تظهر نقاطه 20 تلقائياً
     score = points.get(user_id, 20)
     rank = get_rank(score)
     name = get_name(user)
+
+    # تحديث وتخزين يوزر التليجرام الخاص باللاعب الحالي تلقائياً عند استخدامه الأمر
+    if "tg_names" not in users or not isinstance(users.get("tg_names"), dict):
+        users["tg_names"] = {}
+    users["tg_names"][user_id] = name
+    save_users()
 
     await msg.reply_text(
         f"""📊 بيانات اللاعب
@@ -214,7 +226,7 @@ async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # =========================
-# TOP (تنسيق احترافي، منظم مع مسافات فارغة)
+# TOP (يوزرات تليجرام + شكل منظم جداً بدون نسخ تلقائي)
 # =========================
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not points:
@@ -225,31 +237,30 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     medals = ["🥇", "🥈", "🥉"]
     
     text = "👑 <b>لــوحــة الـصـدارة | TOP 10</b> 👑\n"
-    text += "🏆 <i>أقوى اللاعبين متفاعلين في المجموعة:</i>\n"
-    text += "<code>" + "─" * 30 + "</code>\n"
+    text += "🏆 <i>🏆 أفضل اللاعبين في الجروب:</i>\n"
+    text += "────────────────────\n\n"
 
     for i, (uid, score) in enumerate(sorted_users):
-        chess_name = users.get(uid, None)
+        # جلب يوزر التليجرام المخزن للاعب، إذا لم يظهر بعد يعرض ID مؤقت
+        tg_names_dict = users.get("tg_names", {})
+        tg_name = tg_names_dict.get(uid, f"لاعب_{uid[:4]}")
         
-        # قص الاسم الطويل لـ 10 أحرف كحد أقصى لمنع تخريب المحاذاة الجدولية
-        if chess_name:
-            name = str(chess_name)[:10]
-        else:
-            name = f"ID:{uid[:5]}"
-            
+        # قص اليوزر الطويل لـ 12 حرف لضمان المحاذاة التامة
+        display_name = str(tg_name)[:12]
+        
+        # حساب المسافات المطلوبة ديناميكياً لجعل الأسطر موازية لبعضها كالمسطرة
+        spaces_count = max(1, 14 - len(display_name))
+        spaces = " " * spaces_count
+        
         rank = get_rank(score)
-        medal = medals[i] if i < 3 else f" {i+1}."
+        medal = medals[i] if i < 3 else f" {i+1}. "
 
-        # استخدام الخط الموحد والـ Formatting لضبط محاذاة المسافات كالمسطرة
-        text += f"{medal} <code>{name:<11} | {score:>3}ن | {rank}</code>\n"
-        
-        # إضافة سطر فارغ تحت كل لاعب لزيادة التنظيم والشكل الاحترافي
-        text += "\n"
+        # صياغة السطر بدون استخدام <code> حتى لا يتنسخ عند الضغط
+        text += f"{medal} <b>{display_name}</b>{spaces}|  {score}ن  |  {rank}\n\n"
 
-    text += "<code>" + "─" * 30 + "</code>\n"
+    text += "────────────────────\n"
     text += "♟️ <i>استمر في التفاعل لانتزاع الصدارة!</i>"
 
-    # استخدام parse_mode="HTML" ليعمل التنسيق الجديد بشكل صحيح
     await update.message.reply_text(text, parse_mode="HTML")
 
 # =========================
@@ -263,7 +274,6 @@ app.add_handler(CommandHandler("elo", elo))
 app.add_handler(CommandHandler("points", mypoints))
 app.add_handler(CommandHandler("top", top))
 
-# فلتر لالتقاط الرسائل النصية في المجموعات (مع استثناء الأوامر)
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.SUPERGROUP | filters.ChatType.GROUP), handle_points))
 
 app.run_polling()
