@@ -1,161 +1,77 @@
-import asyncio
-import json
-import logging
-import os
-import shutil
-from pathlib import Path
+print(">>> FILE IS RUNNING <<<")
 
-import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+import requests
+import json
+import os
 
-
-# =========================
-# الإعدادات
-# =========================
-
+# ⚠️ تنبيه: قم بتغيير هذا التوكن من BotFather فوراً لأن القديم تم كشفه
 TOKEN = "8953879123:AAGRRihV_yxhMSSpkwdcAArtZyS3hUaUjaM"
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_FILE = BASE_DIR / "users.json"
-POINTS_FILE = BASE_DIR / "points.json"
-
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
-logger = logging.getLogger(__name__)
-
+DATA_FILE = "users.json"
+POINTS_FILE = "points.json"
 
 # =========================
-# تحميل وحفظ البيانات بدون ضياع
+# تحميل بيانات المستخدمين
 # =========================
-
-def load_json(path: Path) -> dict:
-    if not path.exists():
-        return {}
-
-    try:
-        with path.open("r", encoding="utf-8") as file:
-            return json.load(file)
-    except json.JSONDecodeError:
-        raise RuntimeError(f"ملف البيانات تالف أو غير مقروء: {path}")
-    except OSError as error:
-        raise RuntimeError(f"مش قادر أقرأ ملف البيانات: {path}") from error
-
-
-def save_json(path: Path, data: dict) -> None:
-    # يعمل نسخة احتياطية قبل كل حفظ لو الملف موجود
-    if path.exists():
-        backup_path = path.with_suffix(path.suffix + ".bak")
-        shutil.copy2(path, backup_path)
-
-    temp_path = path.with_suffix(path.suffix + ".tmp")
-
-    with temp_path.open("w", encoding="utf-8") as file:
-        json.dump(data, file, ensure_ascii=False, indent=2)
-
-    os.replace(temp_path, path)
-
-
-users = load_json(DATA_FILE)
-points = load_json(POINTS_FILE)
-
-
-def save_users() -> None:
-    save_json(DATA_FILE, users)
-
-
-def save_points() -> None:
-    save_json(POINTS_FILE, points)
-
+if os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "r") as f:
+        users = json.load(f)
+else:
+    users = {}
 
 # =========================
-# Chess.com API
+# تحميل النقاط
 # =========================
+if os.path.exists(POINTS_FILE):
+    with open(POINTS_FILE, "r") as f:
+        points = json.load(f)
+else:
+    points = {}
 
-def clean_chess_username(username: str) -> str:
-    username = username.strip()
+def save_users():
+    with open(DATA_FILE, "w") as f:
+        json.dump(users, f)
 
-    prefixes = [
-        "https://www.chess.com/member/",
-        "https://chess.com/member/",
-        "www.chess.com/member/",
-        "chess.com/member/",
-    ]
+def save_points():
+    with open(POINTS_FILE, "w") as f:
+        json.dump(points, f)
 
-    for prefix in prefixes:
-        if username.lower().startswith(prefix):
-            username = username[len(prefix):]
-
-    return username.strip("/")
-
-
-def fetch_elo(username: str) -> dict:
-    username = clean_chess_username(username)
+# =========================
+# Chess API (تم التحديث لضمان عدم حدوث Error)
+# =========================
+def get_elo(username):
     url = f"https://api.chess.com/pub/player/{username}/stats"
-
+    # إضافة ميزة حماية لتخطي حظر موقع شطرنج
     headers = {
-        "User-Agent": "CheckMateTelegramBot/1.0",
-        "Accept": "application/json",
+        "User-Agent": "TelegramChessBot/1.0 (contact: admin@example.com)"
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=15)
-    except requests.RequestException:
-        logger.exception("Chess.com request failed")
-        return {
-            "ok": False,
-            "error": "مش قادر أوصل لـ Chess.com حالياً. جرّب تاني بعد شوية.",
-        }
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            return {"rapid": "N/A", "blitz": "N/A", "bullet": "N/A"}
+        data = r.json()
+    except:
+        return {"rapid": "Error", "blitz": "Error", "bullet": "Error"}
 
-    if response.status_code == 404:
-        return {
-            "ok": False,
-            "error": "اسم المستخدم ده مش موجود على Chess.com.",
-        }
-
-    if response.status_code == 429:
-        return {
-            "ok": False,
-            "error": "Chess.com بيحد الطلبات حالياً. جرّب تاني بعد شوية.",
-        }
-
-    if response.status_code != 200:
-        return {
-            "ok": False,
-            "error": f"Chess.com رجّع خطأ رقم {response.status_code}.",
-        }
-
-    try:
-        data = response.json()
-    except ValueError:
-        return {
-            "ok": False,
-            "error": "رد Chess.com مش مفهوم حالياً.",
-        }
-
-    def rating(key: str) -> str:
-        value = data.get(key, {}).get("last", {}).get("rating")
-        return str(value) if value is not None else "N/A"
+    def safe(key):
+        try:
+            return data.get(key, {}).get("last", {}).get("rating", "N/A")
+        except:
+            return "N/A"
 
     return {
-        "ok": True,
-        "rapid": rating("chess_rapid"),
-        "blitz": rating("chess_blitz"),
-        "bullet": rating("chess_bullet"),
+        "rapid": safe("chess_rapid"),
+        "blitz": safe("chess_blitz"),
+        "bullet": safe("chess_bullet")
     }
 
-
-async def get_elo(username: str) -> dict:
-    return await asyncio.to_thread(fetch_elo, username)
-
-
 # =========================
-# الرتب والأسماء
+# الرتب
 # =========================
-
-def get_rank(score: int) -> str:
+def get_rank(score):
     if score < 50:
         return "♙ مبتدئ"
     elif score < 150:
@@ -167,115 +83,79 @@ def get_rank(score: int) -> str:
     else:
         return "👑 أسطورة"
 
-
-def get_name(user) -> str:
+# =========================
+# الاسم
+# =========================
+def get_name(user):
     if user.username:
         return f"@{user.username}"
-    return user.first_name or "لاعب"
-
+    return user.first_name
 
 # =========================
-# /start
+# START
 # =========================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.effective_message.reply_text(
-        "أهلاً بيك في جروب Check Mate 👑♟️\n\n"
-        "اربط حسابك كده:\n"
-        "/sign username\n\n"
-        "وبعدها اعرض التقييم:\n"
-        "/elo"
-    )
-
+    await update.message.reply_text("اهلا بك في جروب Check Mate 👑♟️")
 
 # =========================
-# /sign username
+# SIGN (تم إصلاح كتابة النص هنا لتجنب المشكلة الحالية)
 # =========================
-
 async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0:
-        await update.effective_message.reply_text("اكتب: /sign username")
-        return
-
-    username = clean_chess_username(context.args[0])
-
-    if not username:
-        await update.effective_message.reply_text("اسم المستخدم مش واضح. مثال: /sign hikaru")
+        await update.message.reply_text("اكتب: /sign username")
         return
 
     user_id = str(update.effective_user.id)
-    users[user_id] = username
+    # ✅ تم الإصلاح: نأخذ أول عنصر في القائمة مباشرة كـ نص وليس القائمة كاملة
+    users[user_id] = context.args[0]
     save_users()
 
-    await update.effective_message.reply_text(
-        f"✅ تم ربط حسابك في Chess.com: {username}"
-    )
-
+    await update.message.reply_text(f"🤝✅chess.comتم ربط حسابك في: {context.args[0]} ")
 
 # =========================
-# /elo
-# /elo username
-# أو بالرد على شخص
+# ELO
 # =========================
-
 async def elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.effective_message
+    user_id = str(update.effective_user.id)
 
-    if context.args:
-        username = clean_chess_username(context.args[0])
-    else:
-        user_id = str(update.effective_user.id)
+    if update.message.reply_to_message:
+        user_id = str(update.message.reply_to_message.from_user.id)
 
-        if message.reply_to_message:
-            user_id = str(message.reply_to_message.from_user.id)
-
-        if user_id not in users:
-            await message.reply_text(
-                "❌ الحساب ده غير مربوط بموقع Chess.com\n"
-                "استخدم: /sign username"
-            )
-            return
-
-        username = users[user_id]
-
-    rating = await get_elo(username)
-
-    if not rating["ok"]:
-        await message.reply_text(f"❌ {rating['error']}")
+    if user_id not in users:
+        await update.message.reply_text("❌ هذا الحساب غير مربوط بموقع Chess.com")
         return
 
-    await message.reply_text(
-        f"♟️ Stats\n\n"
-        f"👤 Chess.com: {username}\n\n"
-        f"⚡ Rapid: {rating['rapid']}\n"
-        f"🔥 Blitz: {rating['blitz']}\n"
-        f"💣 Bullet: {rating['bullet']}"
-    )
+    username = users[user_id]
+    rating = get_elo(username)
 
+    await update.message.reply_text(
+        f"""♟️ Stats
+
+👤 Chess.com: {username}
+
+⚡ Rapid: {rating['rapid']}
+🔥 Blitz: {rating['blitz']}
+💣 Bullet: {rating['bullet']}"""
+    )
 
 # =========================
 # التحقق من الأدمن
 # =========================
-
-async def is_admin(update: Update, user_id: int) -> bool:
+async def is_admin(update: Update, user_id: int):
     try:
         member = await update.effective_chat.get_member(user_id)
         return member.status in ["administrator", "creator"]
-    except Exception:
-        logger.exception("Could not check admin status")
+    except:
         return False
 
-
 # =========================
-# نظام النقاط
-# الأدمن يرد على رسالة اللاعب بـ +5 أو -3
+# نظام النقاط (المشرفين فقط)
 # =========================
-
 async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.effective_message
-    text = (msg.text or "").strip()
+    msg = update.message
+    text = msg.text.strip()
 
-    if not (text.startswith("+") or text.startswith("-")):
+    if not (text.startswith('+') or text.startswith('-')):
         return
 
     try:
@@ -292,140 +172,85 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     target_user = msg.reply_to_message.from_user
-
     if target_user.is_bot:
         return
 
     target_id = str(target_user.id)
 
-    if target_id not in points:
-        points[target_id] = {
-            "points": 20,
-            "name": get_name(target_user),
-        }
-
-    points[target_id]["points"] += value
-    points[target_id]["name"] = get_name(target_user)
+    points[target_id] = points.get(target_id, 20) + value
     save_points()
 
-    score = points[target_id]["points"]
+    score = points[target_id]
     rank = get_rank(score)
     name = get_name(target_user)
 
     await msg.reply_text(
-        f"🏆 تم تعديل النقاط\n\n"
-        f"👤 الاسم: {name}\n"
-        f"📊 النقاط: {score}\n"
-        f"🎖️ الرتبة: {rank}"
+        f"""🏆 تم تعديل النقاط
+
+👤 الاسم: {name}
+📊 النقاط: {score}
+🎖️ الرتبة: {rank}"""
     )
 
-
 # =========================
-# /points
-# أو بالرد على شخص
+# عرض النقاط (لنفسك أو أي شخص)
 # =========================
-
 async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.effective_message
+    msg = update.message
 
     if msg.reply_to_message:
         user = msg.reply_to_message.from_user
     else:
-        user = update.effective_user
+        user = msg.from_user
 
     user_id = str(user.id)
 
-    if user_id not in points:
-        points[user_id] = {
-            "points": 20,
-            "name": get_name(user),
-        }
-        save_points()
-
-    score = points[user_id]["points"]
+    score = points.get(user_id, 20)
     rank = get_rank(score)
-    name = points[user_id]["name"]
+    name = get_name(user)
 
     await msg.reply_text(
-        f"📊 بيانات اللاعب\n\n"
-        f"👤 الاسم: {name}\n"
-        f"🏆 النقاط: {score}\n"
-        f"🎖️ الرتبة: {rank}"
+        f"""📊 بيانات اللاعب
+
+👤 الاسم: {name}
+🏆 النقاط: {score}
+🎖️ الرتبة: {rank}"""
     )
 
-
 # =========================
-# /top
+# TOP (مع ميداليات)
 # =========================
-
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not points:
-        await update.effective_message.reply_text("لا يوجد ترتيب بعد")
+        await update.message.reply_text("لا يوجد بيانات بعد")
         return
 
-    ranking = []
+    sorted_users = sorted(points.items(), key=lambda x: x[1], reverse=True)[:10]
+    medals = ["🥇", "🥈", "🥉"]
+    text = "🏆 أفضل اللاعبين في الجروب:\n\n"
 
-    for uid, data in points.items():
-        score = int(data.get("points", 0))
-        name = data.get("name", "لاعب")
-        ranking.append((name, score))
+    for i, (uid, score) in enumerate(sorted_users):
+        chess_name = users.get(uid, None)
+        display_name = f"Chess: {chess_name}" if chess_name else f"ID: {uid}"
+        
+        rank = get_rank(score)
+        medal = medals[i] if i < 3 else f"{i+1}."
 
-    ranking.sort(key=lambda x: x[1], reverse=True)
-    ranking = ranking[:10]
+        text += f"{medal} {display_name} | {score} نقطة | {rank}\n"
 
-    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-
-    text = "🏆 TOP 10 CHECK MATE 🏆\n\n"
-
-    for i, (name, score) in enumerate(ranking):
-        text += f"{medals[i]} {name}  {score}\n"
-
-    await update.effective_message.reply_text(text)
-
-
-# =========================
-# معالج الأخطاء
-# =========================
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.exception("Unhandled bot error", exc_info=context.error)
-
-    if isinstance(update, Update) and update.effective_message:
-        await update.effective_message.reply_text(
-            "حصل خطأ غير متوقع. راجع شاشة تشغيل البوت."
-        )
-
+    await update.message.reply_text(text)
 
 # =========================
 # تشغيل البوت
 # =========================
+app = Application.builder().token(TOKEN).build()
 
-def main():
-    if TOKEN == "PUT_YOUR_NEW_BOT_TOKEN_HERE" or not TOKEN.strip():
-        raise RuntimeError("حط التوكن الجديد مكان PUT_YOUR_NEW_BOT_TOKEN_HERE")
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("sign", sign))
+app.add_handler(CommandHandler("elo", elo))
+app.add_handler(CommandHandler("points", mypoints))
+app.add_handler(CommandHandler("top", top))
 
-    app = Application.builder().token(TOKEN).build()
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.SUPERGROUP | filters.ChatType.GROUP), handle_points))
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("sign", sign))
-    app.add_handler(CommandHandler("elo", elo))
-    app.add_handler(CommandHandler("points", mypoints))
-    app.add_handler(CommandHandler("top", top))
-
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT
-            & ~filters.COMMAND
-            & (filters.ChatType.SUPERGROUP | filters.ChatType.GROUP),
-            handle_points,
-        )
-    )
-
-    app.add_error_handler(error_handler)
-
-    print(">>> BOT IS RUNNING <<<")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-if __name__ == "__main__":
-    main()
+app.run_polling()
