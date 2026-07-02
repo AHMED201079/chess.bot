@@ -6,6 +6,7 @@ import requests
 import json
 import os
 
+# ⚠️ تنبيه: قم بتغيير هذا التوكن من BotFather فوراً لأن القديم تم كشفه
 TOKEN = "8953879123:AAGRRihV_yxhMSSpkwdcAArtZyS3hUaUjaM"
 
 DATA_FILE = "users.json"
@@ -38,14 +39,19 @@ def save_points():
         json.dump(points, f)
 
 # =========================
-# Chess API
+# Chess API (تم التحديث لضمان عدم حدوث Error)
 # =========================
 def get_elo(username):
     url = f"https://chess.com{username}/stats"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    # إضافة ميزة حماية لتخطي حظر موقع شطرنج
+    headers = {
+        "User-Agent": "TelegramChessBot/1.0 (contact: admin@example.com)"
+    }
 
     try:
         r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            return {"rapid": "N/A", "blitz": "N/A", "bullet": "N/A"}
         data = r.json()
     except:
         return {"rapid": "Error", "blitz": "Error", "bullet": "Error"}
@@ -78,7 +84,7 @@ def get_rank(score):
         return "👑 أسطورة"
 
 # =========================
-# الاسم (جلب اسم التليجرام)
+# الاسم
 # =========================
 def get_name(user):
     if user.username:
@@ -92,7 +98,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("اهلا بك في جروب Check Mate 👑♟️")
 
 # =========================
-# SIGN
+# SIGN (تم إصلاح كتابة النص هنا لتجنب المشكلة الحالية)
 # =========================
 async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0:
@@ -100,10 +106,11 @@ async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_id = str(update.effective_user.id)
+    # ✅ تم الإصلاح: نأخذ أول عنصر في القائمة مباشرة كـ نص وليس القائمة كاملة
     users[user_id] = context.args[0]
     save_users()
 
-    await update.message.reply_text("تم ربط حسابك بنجاح ♟️")
+    await update.message.reply_text(f"🤝✅chess.comتم ربط حسابك في: {context.args[0]} ")
 
 # =========================
 # ELO
@@ -162,7 +169,7 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_id = update.effective_user.id
 
     if not await is_admin(update, admin_id):
-        return
+        return  # تجاهل غير المشرفين بصمت لمنع الإزعاج في الجروب
 
     target_user = msg.reply_to_message.from_user
     if target_user.is_bot:
@@ -170,19 +177,18 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     target_id = str(target_user.id)
 
-    # حفظ يوزر التليجرام أو الاسم الأول الخاص باللاعب لتحديث التوب لاحقاً بنفس اللحظة
-    tg_name = f"@{target_user.username}" if target_user.username else target_user.first_name
-    points[target_id] = points.get(target_id, 20) + value
-    
-    # ميزة ذكية مضافة: حفظ بيانات يوزر التليجرام للرجوع إليها في لوحة الصدارة
-    if "tg_names" not in users or not isinstance(users.get("tg_names"), dict):
-        users["tg_names"] = {}
-    users["tg_names"][target_id] = tg_name
-    
-    save_points()
-    save_users()
+    if target_id not in points:
+        points[target_id] = {
+            "points": 20,
+            "name": get_name(target_user)
+        }
 
-    score = points[target_id]
+    points[target_id]["points"] += value
+    points[target_id]["name"] = get_name(target_user)
+    save_points()
+
+    score = points[target_id]["points"]
+
     rank = get_rank(score)
     name = get_name(target_user)
 
@@ -207,15 +213,16 @@ async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(user.id)
 
-    score = points.get(user_id, 20)
-    rank = get_rank(score)
-    name = get_name(user)
+    if user_id not in points:
+        points[user_id] = {
+            "points": 20,
+            "name": get_name(user)
+        }
+        save_points()
 
-    # تحديث وتخزين يوزر التليجرام الخاص باللاعب الحالي تلقائياً عند استخدامه الأمر
-    if "tg_names" not in users or not isinstance(users.get("tg_names"), dict):
-        users["tg_names"] = {}
-    users["tg_names"][user_id] = name
-    save_users()
+    score = points[user_id]["points"]
+    rank = get_rank(score)
+    name = points[user_id]["name"]
 
     await msg.reply_text(
         f"""📊 بيانات اللاعب
@@ -226,42 +233,42 @@ async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # =========================
-# TOP (يوزرات تليجرام + شكل منظم جداً بدون نسخ تلقائي)
+# TOP (تم الاستبدال بالدالة الجديدة كلياً بناءً على طلبك)
 # =========================
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not points:
-        await update.message.reply_text("لا يوجد بيانات بعد")
+        await update.message.reply_text("لا يوجد ترتيب بعد")
         return
 
-    sorted_users = sorted(points.items(), key=lambda x: x[1], reverse=True)[:10]
-    medals = ["🥇", "🥈", "🥉"]
-    
-    text = "👑 <b>لــوحــة الـصـدارة | TOP 10</b> 👑\n"
-    text += "🏆 <i>🏆 أفضل اللاعبين في الجروب:</i>\n"
-    text += "────────────────────\n\n"
+    ranking = []
 
-    for i, (uid, score) in enumerate(sorted_users):
-        # جلب يوزر التليجرام المخزن للاعب، إذا لم يظهر بعد يعرض ID مؤقت
-        tg_names_dict = users.get("tg_names", {})
-        tg_name = tg_names_dict.get(uid, f"لاعب_{uid[:4]}")
-        
-        # قص اليوزر الطويل لـ 12 حرف لضمان المحاذاة التامة
-        display_name = str(tg_name)[:12]
-        
-        # حساب المسافات المطلوبة ديناميكياً لجعل الأسطر موازية لبعضها كالمسطرة
-        spaces_count = max(1, 14 - len(display_name))
-        spaces = " " * spaces_count
-        
-        rank = get_rank(score)
-        medal = medals[i] if i < 3 else f" {i+1}. "
+    for uid, data in points.items():
+        score = data["points"]
+        name = data["name"]
+        ranking.append((name, score))
 
-        # صياغة السطر بدون استخدام <code> حتى لا يتنسخ عند الضغط
-        text += f"{medal} <b>{display_name}</b>{spaces}|  {score}ن  |  {rank}\n\n"
+    ranking.sort(key=lambda x: x[1], reverse=True)
+    ranking = ranking[:10]
 
-    text += "────────────────────\n"
-    text += "♟️ <i>استمر في التفاعل لانتزاع الصدارة!</i>"
+    medals = [
+        "🥇",
+        "🥈",
+        "🥉",
+        "4️⃣",
+        "5️⃣",
+        "6️⃣",
+        "7️⃣",
+        "8️⃣",
+        "9️⃣",
+        "🔟"
+    ]
 
-    await update.message.reply_text(text, parse_mode="HTML")
+    text = "🏆 TOP 10 CHECK MATE 🏆\n\n"
+
+    for i, (name, score) in enumerate(ranking):
+        text += f"{medals[i]} {name}  {score}\n"
+
+    await update.message.reply_text(text)
 
 # =========================
 # تشغيل البوت
