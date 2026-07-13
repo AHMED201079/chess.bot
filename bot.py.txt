@@ -99,18 +99,19 @@ async def elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ هذا الحساب غير مربوط بموقع Chess.com")
         return
 
-    username = users[user_id]
-    rating = get_elo(username)
+   username = users[user_id]
+rating = get_elo(username)
 
-    await update.message.reply_text(
-        f"""♟️ Stats
+await update.message.reply_text(
+    f"""♟️ Stats
 
-f"👤 Chess.com: <code>{username}</code>"
+👤 Chess.com: <code>{username}</code>
 
 ⚡ Rapid: {rating['rapid']}
 🔥 Blitz: {rating['blitz']}
-💣 Bullet: {rating['bullet']}"""
-    )
+💣 Bullet: {rating['bullet']}""",
+    parse_mode="HTML"
+)
 
 async def is_admin(update: Update, user_id: int):
     try:
