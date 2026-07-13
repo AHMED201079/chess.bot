@@ -100,19 +100,18 @@ async def elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
    username = users[user_id]
-rating = get_elo(username)
+    rating = get_elo(username)
 
-await update.message.reply_text(
-    f"""♟️ Stats
+    await update.message.reply_text(
+        f"""♟️ Stats
 
 👤 Chess.com: <code>{username}</code>
 
 ⚡ Rapid: {rating['rapid']}
 🔥 Blitz: {rating['blitz']}
 💣 Bullet: {rating['bullet']}""",
-    parse_mode="HTML"
-)
-
+        parse_mode="HTML"
+    )
 async def is_admin(update: Update, user_id: int):
     try:
         member = await update.effective_chat.get_member(user_id)
