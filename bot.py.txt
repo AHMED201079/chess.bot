@@ -105,7 +105,7 @@ async def elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"""♟️ Stats
 
-👤 Chess.com: {`username`}
+👤 Chess.com: `{username}`
 
 ⚡ Rapid: {rating['rapid']}
 🔥 Blitz: {rating['blitz']}
