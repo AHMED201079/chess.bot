@@ -99,7 +99,7 @@ async def elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ هذا الحساب غير مربوط بموقع Chess.com")
         return
 
-   username = users[user_id]
+    username = users[user_id]
     rating = get_elo(username)
 
     await update.message.reply_text(
