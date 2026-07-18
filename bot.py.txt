@@ -207,7 +207,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         rank = get_rank(score)
 
-        if i == 0:
+           if i == 0:
             leader_name = display_name
             leader_score = score
 
@@ -216,13 +216,10 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"    🏆 <code>{score}</code> نقطة | {escape(rank)}\n\n"
         )
 
-     text += "────────────\n"
+    text += "────────────\n"
     text += f"👑 المتصدر: <b>{escape(leader_name)}</b> - <code>{leader_score}</code> نقطة"
 
-async def topeloR(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    players = []
-
-    for uid, username in users.items():
+    await update.message.reply_text(text, parse_mode="HTML")
         rating = get_elo(username)
 
         try:
