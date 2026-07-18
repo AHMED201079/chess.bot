@@ -197,7 +197,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     leader_name = None
     leader_score = None
 
-      for i, (uid, score) in enumerate(sorted_users):
+    for i, (uid, score) in enumerate(sorted_users):
         try:
             member = await context.bot.get_chat_member(update.effective_chat.id, int(uid))
             display_name = get_name(member.user)
@@ -216,10 +216,15 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"    🏆 <code>{score}</code> نقطة | {escape(rank)}\n\n"
         )
 
-    text += "────────────\n"
-    text += f"👑 المتصدر: <b>{escape(leader_name)}</b> - <code>{leader_score}</code> نقطة"
+    text += "━━━━━━━━━━━━━━\n"
+    text += f"👑 المتصدر: <b>{escape(leader_name)}</b> بـ <code>{leader_score}</code> نقطة"
 
     await update.message.reply_text(text, parse_mode="HTML")
+async def topeloR(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    players = []
+
+    for uid, username in users.items():
+        rating = get_elo(username)
 
         try:
             rapid = int(rating["rapid"])
@@ -250,16 +255,14 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text += (
             f"{place} <b>{escape(tg)}</b>\n"
-            f"♟️ Chess.com: <code>{chess}</code>\n"
-            f"⚡ Rapid: <b>{elo}</b>\n\n"
+            f"♟️ <code>{chess}</code>\n"
+            f"⚡ Rapid : <b>{elo}</b>\n\n"
         )
 
     text += "━━━━━━━━━━━━━━━━━━\n"
     text += f"👑 <b>ملك الرابيد:</b> {escape(players[0][1])} • <b>{players[0][0]}</b>"
 
     await update.message.reply_text(text, parse_mode="HTML")
-
-
 async def topeloB(update: Update, context: ContextTypes.DEFAULT_TYPE):
     players = []
 
@@ -295,16 +298,14 @@ async def topeloB(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text += (
             f"{place} <b>{escape(tg)}</b>\n"
-            f"♟️ Chess.com: <code>{chess}</code>\n"
-            f"🔥 Blitz: <b>{elo}</b>\n\n"
+            f"♟️ <code>{chess}</code>\n"
+            f"🔥 Blitz : <b>{elo}</b>\n\n"
         )
 
     text += "━━━━━━━━━━━━━━━━━━\n"
     text += f"👑 <b>ملك البليتز:</b> {escape(players[0][1])} • <b>{players[0][0]}</b>"
 
     await update.message.reply_text(text, parse_mode="HTML")
-
-    await update.message.reply_text(text)
 async def unlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not update.message.reply_to_message:
