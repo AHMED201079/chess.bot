@@ -197,7 +197,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     leader_name = None
     leader_score = None
 
-    for i, (uid, score) in enumerate(sorted_users):
+      for i, (uid, score) in enumerate(sorted_users):
         try:
             member = await context.bot.get_chat_member(update.effective_chat.id, int(uid))
             display_name = get_name(member.user)
@@ -207,7 +207,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         rank = get_rank(score)
 
-           if i == 0:
+        if i == 0:
             leader_name = display_name
             leader_score = score
 
@@ -220,7 +220,6 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += f"👑 المتصدر: <b>{escape(leader_name)}</b> - <code>{leader_score}</code> نقطة"
 
     await update.message.reply_text(text, parse_mode="HTML")
-        rating = get_elo(username)
 
         try:
             rapid = int(rating["rapid"])
