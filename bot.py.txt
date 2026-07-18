@@ -216,10 +216,10 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"    🏆 <code>{score}</code> نقطة | {escape(rank)}\n\n"
         )
 
-    text += "━━━━━━━━━━━━━━\n"
-    text += f"👑 المتصدر: <b>{escape(leader_name)}</b> بـ <code>{leader_score}</code> نقطة"
+     text += "────────────\n"
+    text += f"👑 المتصدر: <b>{escape(leader_name)}</b> - <code>{leader_score}</code> نقطة"
 
-  async def topeloR(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def topeloR(update: Update, context: ContextTypes.DEFAULT_TYPE):
     players = []
 
     for uid, username in users.items():
