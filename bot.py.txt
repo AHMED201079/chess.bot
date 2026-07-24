@@ -131,43 +131,38 @@ async def is_admin(update: Update, user_id: int):
 
 async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
+
+    if not msg or not msg.text:
+        return
+
     text = msg.text.strip()
 
-    if not (text.startswith('+') or text.startswith('-')):
+    if text not in ["+10", "-10"] and not text.startswith("+") and not text.startswith("-"):
         return
 
     try:
         value = int(text)
-    except ValueError:
+    except:
         return
 
     if not msg.reply_to_message:
         return
 
-        admin_id = update.effective_user.id
+    admin_id = update.effective_user.id
 
-    if (not await is_admin(update, admin_id)) and (str(admin_id) not in point_admins):
+    if not await is_admin(update, admin_id) and str(admin_id) not in point_admins:
         return
 
-    target_user = msg.reply_to_message.from_user
-    if target_user.is_bot:
-        return
+    user = msg.reply_to_message.from_user
+    uid = str(user.id)
 
-    target_id = str(target_user.id)
-
-    points[target_id] = points.get(target_id, 20) + value
+    points[uid] = points.get(uid, 20) + value
     save_points()
 
-    score = points[target_id]
-    rank = get_rank(score)
-    name = get_name(target_user)
-
     await msg.reply_text(
-        f"""🏆 تم تعديل النقاط
-
-👤 الاسم: {name}
-📊 النقاط: {score}
-🎖️ الرتبة: {rank}"""
+        f"✅ تم تعديل النقاط\n\n"
+        f"👤 {get_name(user)}\n"
+        f"🏆 النقاط: {points[uid]}"
     )
 
 async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
