@@ -160,10 +160,12 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_points()
 
     await msg.reply_text(
-        f"✅ تم تعديل النقاط\n\n"
-        f"👤 {get_name(user)}\n"
-        f"🏆 النقاط: {points[uid]}"
-    )
+    f"""🏆 تم تعديل النقاط
+
+👤 الاسم: {get_name(user)}
+📊 النقاط: {points[uid]}
+🎖️ الرتبة: {get_rank(points[uid])}"""
+)
 
 async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
