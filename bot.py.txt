@@ -429,12 +429,12 @@ f"""⚠️ تم سحب صلاحية مسؤول إدارة النقاط من {get
     # منع التحدي مع البوتات أو منع تحدي الشخص لنفسه
     if challenger.is_bot or opponent.is_bot:
         return
-    
+
     if challenger_id == opponent_id:
         await update.message.reply_text("❌ لا يمكنك تحدي نفسك!")
         return
 
-    # التحقق من أن الملاحظ (المتحدي) رابط حسابه
+    # التحقق من أن المتحدي رابط حسابه
     if challenger_id not in users:
         await update.message.reply_text("❌ يجب ربط حسابك أولاً باستخدام /sign")
         return
@@ -466,17 +466,18 @@ f"""⚠️ تم سحب صلاحية مسؤول إدارة النقاط من {get
     # رابط التحدي المباشر على Chess.com
     challenge_url = f"https://www.chess.com/play/online/new?opponent={opponent_chess}"
 
-    # نص الرسالة مع زر أتش تي إم إلم لتوجيههم للمباراة
+    # نص الرسالة مع رابط التحدي
     text = (
         f"⚔️ <b>تحدي شطرنج جديد!</b>\n\n"
         f"👤 <b>المتحدي:</b> {escape(get_name(challenger))} (<code>{challenger_chess}</code>)\n"
         f"🆚\n"
         f"👤 <b>الخصم:</b> {escape(get_name(opponent))} (<code>{opponent_chess}</code>)\n\n"
-        f"🔗 <a href='{challenge_url}'><b>اضغط هنا لبدء التحدي واختيار الوقت</b></a>\n\n"
+        f"🔗 <a href='{challenge_url}'><b>اضغط هنا لبدء التحدي وااختيار الوقت</b></a>\n\n"
         f"♟️ بعد انتهاء المباراة، استخدم أمر <code>/result</code> لاعتماد النتيجة."
     )
 
     await update.message.reply_text(text, parse_mode="HTML", disable_web_page_preview=False)
+
 
 
 app = Application.builder().token(TOKEN).build()
