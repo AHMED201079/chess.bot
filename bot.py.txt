@@ -407,14 +407,15 @@ async def removepoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_point_admins()
 
     await update.message.reply_text(
-f"""⚠️ تم سحب صلاحية مسؤول إدارة النقاط من {get_name(user)}.
+        f"""⚠️ تم سحب صلاحية مسؤول إدارة النقاط من {get_name(user)}.
 
 ❌ لم يعد بإمكانه إضافة أو خصم نقاط اللاعبين.
 
 🔒 تم إلغاء الصلاحية بنجاح."""
     )
 
-    async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # التأكد من أن الأمر أُرسل بالرد على رسالة
     if not update.message.reply_to_message:
         await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة اللاعب الذي تريد تحديه.")
@@ -448,7 +449,6 @@ f"""⚠️ تم سحب صلاحية مسؤول إدارة النقاط من {get
 
     match_id = str(int(time.time()))
 
-    # حفظ بيانات المباراة
     matches[match_id] = {
         "player1": challenger_id,
         "player2": opponent_id,
@@ -463,21 +463,22 @@ f"""⚠️ تم سحب صلاحية مسؤول إدارة النقاط من {get
     challenger_chess = users[challenger_id]
     opponent_chess = users[opponent_id]
 
-    # رابط التحدي المباشر على Chess.com
     challenge_url = f"https://www.chess.com/play/online/new?opponent={opponent_chess}"
 
-    # نص الرسالة مع رابط التحدي
     text = (
         f"⚔️ <b>تحدي شطرنج جديد!</b>\n\n"
         f"👤 <b>المتحدي:</b> {escape(get_name(challenger))} (<code>{challenger_chess}</code>)\n"
         f"🆚\n"
         f"👤 <b>الخصم:</b> {escape(get_name(opponent))} (<code>{opponent_chess}</code>)\n\n"
-        f"🔗 <a href='{challenge_url}'><b>اضغط هنا لبدء التحدي وااختيار الوقت</b></a>\n\n"
+        f"🔗 <a href='{challenge_url}'><b>اضغط هنا لبدء التحدي واختيار الوقت</b></a>\n\n"
         f"♟️ بعد انتهاء المباراة، استخدم أمر <code>/result</code> لاعتماد النتيجة."
     )
 
-    await update.message.reply_text(text, parse_mode="HTML", disable_web_page_preview=False)
-
+    await update.message.reply_text(
+        text,
+        parse_mode="HTML",
+        disable_web_page_preview=False
+    )
 
 
 app = Application.builder().token(TOKEN).build()
