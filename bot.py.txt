@@ -414,10 +414,10 @@ f"""⚠️ تم سحب صلاحية مسؤول إدارة النقاط من {get
 🔒 تم إلغاء الصلاحية بنجاح."""
     )
 
-async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
+    async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # التأكد من أن الأمر أُرسل بالرد على رسالة
     if not update.message.reply_to_message:
-        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة اللاعب.")
+        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة اللاعب الذي تريد تحديه.")
         return
 
     challenger = update.effective_user
@@ -426,13 +426,20 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     challenger_id = str(challenger.id)
     opponent_id = str(opponent.id)
 
+    # منع التحدي مع البوتات أو منع تحدي الشخص لنفسه
     if challenger.is_bot or opponent.is_bot:
         return
+    
+    if challenger_id == opponent_id:
+        await update.message.reply_text("❌ لا يمكنك تحدي نفسك!")
+        return
 
+    # التحقق من أن الملاحظ (المتحدي) رابط حسابه
     if challenger_id not in users:
         await update.message.reply_text("❌ يجب ربط حسابك أولاً باستخدام /sign")
         return
 
+    # التحقق من أن الطرف الآخر رابط حسابه
     if opponent_id not in users:
         await update.message.reply_text("❌ هذا اللاعب غير مربوط بحساب Chess.com.")
         return
@@ -441,6 +448,7 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     match_id = str(int(time.time()))
 
+    # حفظ بيانات المباراة
     matches[match_id] = {
         "player1": challenger_id,
         "player2": opponent_id,
@@ -452,17 +460,24 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     save_matches()
 
-    await update.message.reply_text(
-f"""🎮 تم إنشاء التحدي بنجاح
+    challenger_chess = users[challenger_id]
+    opponent_chess = users[opponent_id]
 
-👤 {get_name(challenger)}
-🆚
-👤 {get_name(opponent)}
+    # رابط التحدي المباشر على Chess.com
+    challenge_url = f"https://www.chess.com/play/online/new?opponent={opponent_chess}"
 
-⏳ الحالة: في انتظار بدء المباراة.
-
-♟️ بعد انتهاء المباراة استخدم الإدارة /result لاعتماد النتيجة."""
+    # نص الرسالة مع زر أتش تي إم إلم لتوجيههم للمباراة
+    text = (
+        f"⚔️ <b>تحدي شطرنج جديد!</b>\n\n"
+        f"👤 <b>المتحدي:</b> {escape(get_name(challenger))} (<code>{challenger_chess}</code>)\n"
+        f"🆚\n"
+        f"👤 <b>الخصم:</b> {escape(get_name(opponent))} (<code>{opponent_chess}</code>)\n\n"
+        f"🔗 <a href='{challenge_url}'><b>اضغط هنا لبدء التحدي واختيار الوقت</b></a>\n\n"
+        f"♟️ بعد انتهاء المباراة، استخدم أمر <code>/result</code> لاعتماد النتيجة."
     )
+
+    await update.message.reply_text(text, parse_mode="HTML", disable_web_page_preview=False)
+
 
 app = Application.builder().token(TOKEN).build()
 
