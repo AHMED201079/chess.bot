@@ -11,6 +11,9 @@ TOKEN = "8953879123:AAGRRihV_yxhMSSpkwdcAArtZyS3hUaUjaM"
 
 DATA_FILE = "users.json"
 POINTS_FILE = "points.json"
+
+MATCHES_FILE = "matches.json"
+DAILY_WINS_FILE = "dailywins.json"
 POINT_ADMINS_FILE = "point_admins.json"
 
 if os.path.exists(DATA_FILE):
@@ -24,6 +27,19 @@ if os.path.exists(POINTS_FILE):
         points = json.load(f)
 else:
     points = {}
+
+if os.path.exists(MATCHES_FILE):
+    with open(MATCHES_FILE, "r") as f:
+        matches = json.load(f)
+else:
+    matches = {}
+
+if os.path.exists(DAILY_WINS_FILE):
+    with open(DAILY_WINS_FILE, "r") as f:
+        daily_wins = json.load(f)
+else:
+    daily_wins = {}
+
 if os.path.exists(POINT_ADMINS_FILE):
     with open(POINT_ADMINS_FILE, "r") as f:
         point_admins = json.load(f)
@@ -41,6 +57,13 @@ def save_point_admins():
 def save_points():
     with open(POINTS_FILE, "w") as f:
         json.dump(points, f)
+def save_matches():
+    with open(MATCHES_FILE, "w") as f:
+        json.dump(matches, f)
+
+def save_daily_wins():
+    with open(DAILY_WINS_FILE, "w") as f:
+        json.dump(daily_wins, f)
 
 def get_elo(username):
     url = f"https://api.chess.com/pub/player/{username}/stats"
@@ -391,6 +414,56 @@ f"""⚠️ تم سحب صلاحية مسؤول إدارة النقاط من {get
 🔒 تم إلغاء الصلاحية بنجاح."""
     )
 
+async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not update.message.reply_to_message:
+        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة اللاعب.")
+        return
+
+    challenger = update.effective_user
+    opponent = update.message.reply_to_message.from_user
+
+    challenger_id = str(challenger.id)
+    opponent_id = str(opponent.id)
+
+    if challenger.is_bot or opponent.is_bot:
+        return
+
+    if challenger_id not in users:
+        await update.message.reply_text("❌ يجب ربط حسابك أولاً باستخدام /sign")
+        return
+
+    if opponent_id not in users:
+        await update.message.reply_text("❌ هذا اللاعب غير مربوط بحساب Chess.com.")
+        return
+
+    import time
+
+    match_id = str(int(time.time()))
+
+    matches[match_id] = {
+        "player1": challenger_id,
+        "player2": opponent_id,
+        "username1": users[challenger_id],
+        "username2": users[opponent_id],
+        "time": int(time.time()),
+        "status": "pending"
+    }
+
+    save_matches()
+
+    await update.message.reply_text(
+f"""🎮 تم إنشاء التحدي بنجاح
+
+👤 {get_name(challenger)}
+🆚
+👤 {get_name(opponent)}
+
+⏳ الحالة: في انتظار بدء المباراة.
+
+♟️ بعد انتهاء المباراة استخدم الإدارة /result لاعتماد النتيجة."""
+    )
+
 app = Application.builder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
@@ -403,6 +476,7 @@ app.add_handler(CommandHandler("topeloB", topeloB))
 app.add_handler(CommandHandler("unlink", unlink))
 app.add_handler(CommandHandler("promotepoints", promotepoints))
 app.add_handler(CommandHandler("removepoints", removepoints))
+app.add_handler(CommandHandler("play", play))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.SUPERGROUP | filters.ChatType.GROUP), handle_points))
 
