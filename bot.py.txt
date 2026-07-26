@@ -92,6 +92,62 @@ def get_elo(username):
         "bullet": safe("chess_bullet")
     }
 
+def get_games(username):
+    url = f"https://api.chess.com/pub/player/{username}/games/archives"
+
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            return []
+
+        archives = r.json().get("archives", [])
+        if not archives:
+            return []
+
+        last_archive = archives[-1]
+
+        r = requests.get(last_archive, timeout=10)
+        if r.status_code != 200:
+            return []
+
+        return r.json().get("games", [])
+
+    except:
+        return []
+def get_match_result(player1, player2, challenge_time):
+    games = get_games(player1)
+
+    for game in reversed(games):
+        end_time = game.get("end_time", 0)
+
+        if end_time < challenge_time:
+            continue
+
+        white = game["white"]["username"].lower()
+        black = game["black"]["username"].lower()
+
+        if {white, black} != {player1.lower(), player2.lower()}:
+            continue
+
+        if game["white"]["result"] == "win":
+            return {
+                "winner": white,
+                "game_url": game.get("url", "")
+            }
+
+        if game["black"]["result"] == "win":
+            return {
+                "winner": black,
+                "game_url": game.get("url", "")
+            }
+
+        return {
+            "winner": "draw",
+            "game_url": game.get("url", "")
+        }
+
+    return None
+
 def get_rank(score):
     if score < 50:
         return "♙ مبتدئ"
