@@ -547,6 +547,7 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
 matches[match_id]["message_id"] = msg.message_id
 save_matches()
 
+
 async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not update.message.reply_to_message:
@@ -559,18 +560,18 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply_id = str(update.message.reply_to_message.message_id)
 
-match = None
+    match = None
 
-for match_id, data in matches.items():
-    if str(data.get("message_id")) == reply_id:
-        match = data
-        break
+    for match_id, data in matches.items():
+        if str(data.get("message_id")) == reply_id:
+            match = data
+            break
 
-if not match:
-    await update.message.reply_text("❌ هذه ليست رسالة تحدي صالحة.")
-    return
+    if not match:
+        await update.message.reply_text("❌ هذه ليست رسالة تحدي صالحة.")
+        return
 
-await update.message.reply_text("✅ تم العثور على التحدي.")
+    await update.message.reply_text("✅ تم العثور على التحدي.")
 
 app = Application.builder().token(TOKEN).build()
 
