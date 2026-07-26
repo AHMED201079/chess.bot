@@ -18,174 +18,173 @@ DAILY_WINS_FILE = "dailywins.json"
 POINT_ADMINS_FILE = "point_admins.json"
 
 if os.path.exists(DATA_FILE):
-
-with open(DATA_FILE, "r") as f:
-users = json.load(f)
+    with open(DATA_FILE, "r") as f:
+        users = json.load(f)
 else:
-users = {}
+    users = {}
 
 if os.path.exists(POINTS_FILE):
-with open(POINTS_FILE, "r") as f:
-points = json.load(f)
+    with open(POINTS_FILE, "r") as f:
+        points = json.load(f)
 else:
-points = {}
+    points = {}
 
 if os.path.exists(MATCHES_FILE):
-with open(MATCHES_FILE, "r") as f:
-matches = json.load(f)
+    with open(MATCHES_FILE, "r") as f:
+        matches = json.load(f)
 else:
-matches = {}
+    matches = {}
 
 if os.path.exists(DAILY_WINS_FILE):
-with open(DAILY_WINS_FILE, "r") as f:
-daily_wins = json.load(f)
+    with open(DAILY_WINS_FILE, "r") as f:
+        daily_wins = json.load(f)
 else:
-daily_wins = {}
+    daily_wins = {}
 
 if os.path.exists(POINT_ADMINS_FILE):
-with open(POINT_ADMINS_FILE, "r") as f:
-point_admins = json.load(f)
+    with open(POINT_ADMINS_FILE, "r") as f:
+        point_admins = json.load(f)
 else:
-point_admins = []
+    point_admins = []
 
 def save_users():
-with open(DATA_FILE, "w") as f:
-json.dump(users, f)
+    with open(DATA_FILE, "w") as f:
+        json.dump(users, f)
 
 def save_point_admins():
-with open(POINT_ADMINS_FILE, "w") as f:
-json.dump(point_admins, f)
+    with open(POINT_ADMINS_FILE, "w") as f:
+        json.dump(point_admins, f)
 
 def save_points():
-with open(POINTS_FILE, "w") as f:
-json.dump(points, f)
+    with open(POINTS_FILE, "w") as f:
+        json.dump(points, f)
 def save_matches():
-with open(MATCHES_FILE, "w") as f:
-json.dump(matches, f)
+    with open(MATCHES_FILE, "w") as f:
+        json.dump(matches, f)
 
 def save_daily_wins():
-with open(DAILY_WINS_FILE, "w") as f:
-json.dump(daily_wins, f)
+    with open(DAILY_WINS_FILE, "w") as f:
+        json.dump(daily_wins, f)
 
 def get_elo(username):
-url = f"https://api.chess.com/pub/player/{username}/stats"
-headers = {
-"User-Agent": "TelegramChessBot/1.0 (contact: admin@example.com)"
-}
+    url = f"https://api.chess.com/pub/player/{username}/stats"
+    headers = {
+        "User-Agent": "TelegramChessBot/1.0 (contact: admin@example.com)"
+    }
 
-try:  
-    r = requests.get(url, headers=headers, timeout=10)  
-    if r.status_code != 200:  
-        return {"rapid": "N/A", "blitz": "N/A", "bullet": "N/A"}  
-    data = r.json()  
-except:  
-    return {"rapid": "Error", "blitz": "Error", "bullet": "Error"}  
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            return {"rapid": "N/A", "blitz": "N/A", "bullet": "N/A"}
+        data = r.json()
+    except:
+        return {"rapid": "Error", "blitz": "Error", "bullet": "Error"}
 
-def safe(key):  
-    try:  
-        return data.get(key, {}).get("last", {}).get("rating", "N/A")  
-    except:  
-        return "N/A"  
+    def safe(key):
+        try:
+            return data.get(key, {}).get("last", {}).get("rating", "N/A")
+        except:
+            return "N/A"
 
-return {  
-    "rapid": safe("chess_rapid"),  
-    "blitz": safe("chess_blitz"),  
-    "bullet": safe("chess_bullet")  
-}
+    return {
+        "rapid": safe("chess_rapid"),
+        "blitz": safe("chess_blitz"),
+        "bullet": safe("chess_bullet")
+    }
 
 def get_rank(score):
-if score < 50:
-return "♙ مبتدئ"
-elif score < 150:
-return "♘ لاعب نشط"
-elif score < 300:
-return "♗ لاعب متقدم"
-elif score < 500:
-return "♖ خبير"
-else:
-return "👑 أسطورة"
+    if score < 50:
+        return "♙ مبتدئ"
+    elif score < 150:
+        return "♘ لاعب نشط"
+    elif score < 300:
+        return "♗ لاعب متقدم"
+    elif score < 500:
+        return "♖ خبير"
+    else:
+        return "👑 أسطورة"
 
 def get_name(user):
-if user.username:
-return f"@{user.username}"
-return user.first_name
+    if user.username:
+        return f"@{user.username}"
+    return user.first_name
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-await update.message.reply_text("اهلا بك في جروب Check Mate 👑♟️")
+    await update.message.reply_text("اهلا بك في جروب Check Mate 👑♟️")
 
 async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
-if len(context.args) == 0:
-await update.message.reply_text("اكتب: /sign username")
-return
+    if len(context.args) == 0:
+        await update.message.reply_text("اكتب: /sign username")
+        return
 
-user_id = str(update.effective_user.id)  
-users[user_id] = context.args[0]  
-save_users()  
+    user_id = str(update.effective_user.id)
+    users[user_id] = context.args[0]
+    save_users()
 
-await update.message.reply_text(f"✅ تم ربط حسابك في chess.com: {context.args[0]}")
+    await update.message.reply_text(f"✅ تم ربط حسابك في chess.com: {context.args[0]}")
 
 async def elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-user_id = str(update.effective_user.id)
+    user_id = str(update.effective_user.id)
 
-if update.message.reply_to_message:  
-    user_id = str(update.message.reply_to_message.from_user.id)  
+    if update.message.reply_to_message:
+        user_id = str(update.message.reply_to_message.from_user.id)
 
-if user_id not in users:  
-    await update.message.reply_text("❌ هذا الحساب غير مربوط بموقع Chess.com")  
-    return  
+    if user_id not in users:
+        await update.message.reply_text("❌ هذا الحساب غير مربوط بموقع Chess.com")
+        return
 
-username = users[user_id]  
-rating = get_elo(username)  
+    username = users[user_id]
+    rating = get_elo(username)
 
-await update.message.reply_text(  
-    f"""♟️ Stats
+    await update.message.reply_text(
+        f"""♟️ Stats
 
 👤 Chess.com: <code>{username}</code>
 
 ⚡ Rapid: {rating['rapid']}
 🔥 Blitz: {rating['blitz']}
 💣 Bullet: {rating['bullet']}""",
-parse_mode="HTML"
-)
+        parse_mode="HTML"
+    )
 async def is_admin(update: Update, user_id: int):
-try:
-member = await update.effective_chat.get_member(user_id)
-return member.status in ["administrator", "creator"]
-except:
-return False
+    try:
+        member = await update.effective_chat.get_member(user_id)
+        return member.status in ["administrator", "creator"]
+    except:
+        return False
 
 async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
-msg = update.message
+    msg = update.message
 
-if not msg or not msg.text:  
-    return  
+    if not msg or not msg.text:
+        return
 
-text = msg.text.strip()  
+    text = msg.text.strip()
 
-if text not in ["+10", "-10"] and not text.startswith("+") and not text.startswith("-"):  
-    return  
+    if text not in ["+10", "-10"] and not text.startswith("+") and not text.startswith("-"):
+        return
 
-try:  
-    value = int(text)  
-except:  
-    return  
+    try:
+        value = int(text)
+    except:
+        return
 
-if not msg.reply_to_message:  
-    return  
+    if not msg.reply_to_message:
+        return
 
-admin_id = update.effective_user.id  
+    admin_id = update.effective_user.id
 
-if not await is_admin(update, admin_id) and str(admin_id) not in point_admins:  
-    return  
+    if not await is_admin(update, admin_id) and str(admin_id) not in point_admins:
+        return
 
-user = msg.reply_to_message.from_user  
-uid = str(user.id)  
+    user = msg.reply_to_message.from_user
+    uid = str(user.id)
 
-points[uid] = points.get(uid, 20) + value  
-save_points()  
+    points[uid] = points.get(uid, 20) + value
+    save_points()
 
-await msg.reply_text(  
-f"""🏆 تم تعديل النقاط
+    await msg.reply_text(
+    f"""🏆 تم تعديل النقاط
 
 👤 الاسم: {get_name(user)}
 📊 النقاط: {points[uid]}
@@ -193,195 +192,191 @@ f"""🏆 تم تعديل النقاط
 )
 
 async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
-msg = update.message
+    msg = update.message
 
-if msg.reply_to_message:  
-    user = msg.reply_to_message.from_user  
-else:  
-    user = msg.from_user  
+    if msg.reply_to_message:
+        user = msg.reply_to_message.from_user
+    else:
+        user = msg.from_user
 
-user_id = str(user.id)  
+    user_id = str(user.id)
 
-score = points.get(user_id, 20)  
-rank = get_rank(score)  
-name = get_name(user)  
+    score = points.get(user_id, 20)
+    rank = get_rank(score)
+    name = get_name(user)
 
-await msg.reply_text(  
-    f"""📊 بيانات اللاعب
+    await msg.reply_text(
+        f"""📊 بيانات اللاعب
 
 👤 الاسم: {name}
 🏆 النقاط: {score}
 🎖️ الرتبة: {rank}"""
-)
+    )
 
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
-if not points:
-await update.message.reply_text("لا يوجد بيانات بعد")
-return
+    if not points:
+        await update.message.reply_text("لا يوجد بيانات بعد")
+        return
 
-sorted_users = sorted(points.items(), key=lambda x: x[1], reverse=True)[:10]  
+    sorted_users = sorted(points.items(), key=lambda x: x[1], reverse=True)[:10]
 
-places = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]  
+    places = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
-text = "🏆 <b>TOP 10 CHECK MATE</b>\n"  
-text += "━━━━━━━━━━━━━━\n\n"  
+    text = "🏆 <b>TOP 10 CHECK MATE</b>\n"
+    text += "━━━━━━━━━━━━━━\n\n"
 
-leader_name = None  
-leader_score = None  
+    leader_name = None
+    leader_score = None
 
-for i, (uid, score) in enumerate(sorted_users):  
-    try:  
-        member = await context.bot.get_chat_member(update.effective_chat.id, int(uid))  
-        display_name = get_name(member.user)  
-    except:  
-        chess_name = users.get(uid)  
-        display_name = f"Chess.com: {chess_name}" if chess_name else f"ID: {uid}"  
+    for i, (uid, score) in enumerate(sorted_users):
+        try:
+            member = await context.bot.get_chat_member(update.effective_chat.id, int(uid))
+            display_name = get_name(member.user)
+        except:
+            chess_name = users.get(uid)
+            display_name = f"Chess.com: {chess_name}" if chess_name else f"ID: {uid}"
 
-    rank = get_rank(score)  
+        rank = get_rank(score)
 
-    if i == 0:  
-        leader_name = display_name  
-        leader_score = score  
+        if i == 0:
+            leader_name = display_name
+            leader_score = score
 
-    text += (  
-        f"{places[i]} <b>{escape(display_name)}</b>\n"  
-        f"    🏆 <code>{score}</code> نقطة | {escape(rank)}\n\n"  
-    )  
+        text += (
+            f"{places[i]} <b>{escape(display_name)}</b>\n"
+            f"    🏆 <code>{score}</code> نقطة | {escape(rank)}\n\n"
+        )
 
-text += "━━━━━━━━━━━━━━\n"  
-text += f"👑 المتصدر: <b>{escape(leader_name)}</b> بـ <code>{leader_score}</code> نقطة"  
+    text += "━━━━━━━━━━━━━━\n"
+    text += f"👑 المتصدر: <b>{escape(leader_name)}</b> بـ <code>{leader_score}</code> نقطة"
 
-await update.message.reply_text(text, parse_mode="HTML")
-
+    await update.message.reply_text(text, parse_mode="HTML")
 async def topeloR(update: Update, context: ContextTypes.DEFAULT_TYPE):
-players = []
+    players = []
 
-for uid, username in users.items():  
-    rating = get_elo(username)  
+    for uid, username in users.items():
+        rating = get_elo(username)
 
-    try:  
-        rapid = int(rating["rapid"])  
-    except:  
-        continue  
+        try:
+            rapid = int(rating["rapid"])
+        except:
+            continue
 
-    try:  
-        member = await context.bot.get_chat_member(update.effective_chat.id, int(uid))  
-        tg_name = get_name(member.user)  
-    except:  
-        tg_name = username  
+        try:
+            member = await context.bot.get_chat_member(update.effective_chat.id, int(uid))
+            tg_name = get_name(member.user)
+        except:
+            tg_name = username
 
-    players.append((rapid, tg_name, username))  
+        players.append((rapid, tg_name, username))
 
-if not players:  
-    await update.message.reply_text("❌ لا يوجد لاعبين مربوطين.")  
-    return  
+    if not players:
+        await update.message.reply_text("❌ لا يوجد لاعبين مربوطين.")
+        return
 
-players.sort(reverse=True)  
+    players.sort(reverse=True)
 
-medals = ["🥇", "🥈", "🥉"]  
+    medals = ["🥇", "🥈", "🥉"]
 
-text = "🏆 <b>TOP RAPID PLAYERS</b>\n"  
-text += "━━━━━━━━━━━━━━━━━━\n\n"  
+    text = "🏆 <b>TOP RAPID PLAYERS</b>\n"
+    text += "━━━━━━━━━━━━━━━━━━\n\n"
 
-for i, (elo, tg, chess) in enumerate(players[:10]):  
-    place = medals[i] if i < 3 else f"{i+1}️⃣"  
+    for i, (elo, tg, chess) in enumerate(players[:10]):
+        place = medals[i] if i < 3 else f"{i+1}️⃣"
 
-    text += (  
-        f"{place} <b>{escape(tg)}</b>\n"  
-        f"♟️ <code>{chess}</code>\n"  
-        f"⚡ Rapid : <b>{elo}</b>\n\n"  
-    )  
+        text += (
+            f"{place} <b>{escape(tg)}</b>\n"
+            f"♟️ <code>{chess}</code>\n"
+            f"⚡ Rapid : <b>{elo}</b>\n\n"
+        )
 
-text += "━━━━━━━━━━━━━━━━━━\n"  
-text += f"👑 <b>ملك الرابيد:</b> {escape(players[0][1])} • <b>{players[0][0]}</b>"  
+    text += "━━━━━━━━━━━━━━━━━━\n"
+    text += f"👑 <b>ملك الرابيد:</b> {escape(players[0][1])} • <b>{players[0][0]}</b>"
 
-await update.message.reply_text(text, parse_mode="HTML")
-
+    await update.message.reply_text(text, parse_mode="HTML")
 async def topeloB(update: Update, context: ContextTypes.DEFAULT_TYPE):
-players = []
+    players = []
 
-for uid, username in users.items():  
-    rating = get_elo(username)  
+    for uid, username in users.items():
+        rating = get_elo(username)
 
-    try:  
-        blitz = int(rating["blitz"])  
-    except:  
-        continue  
+        try:
+            blitz = int(rating["blitz"])
+        except:
+            continue
 
-    try:  
-        member = await context.bot.get_chat_member(update.effective_chat.id, int(uid))  
-        tg_name = get_name(member.user)  
-    except:  
-        tg_name = username  
+        try:
+            member = await context.bot.get_chat_member(update.effective_chat.id, int(uid))
+            tg_name = get_name(member.user)
+        except:
+            tg_name = username
 
-    players.append((blitz, tg_name, username))  
+        players.append((blitz, tg_name, username))
 
-if not players:  
-    await update.message.reply_text("❌ لا يوجد لاعبين مربوطين.")  
-    return  
+    if not players:
+        await update.message.reply_text("❌ لا يوجد لاعبين مربوطين.")
+        return
 
-players.sort(reverse=True)  
+    players.sort(reverse=True)
 
-medals = ["🥇", "🥈", "🥉"]  
+    medals = ["🥇", "🥈", "🥉"]
 
-text = "🔥 <b>TOP BLITZ PLAYERS</b>\n"  
-text += "━━━━━━━━━━━━━━━━━━\n\n"  
+    text = "🔥 <b>TOP BLITZ PLAYERS</b>\n"
+    text += "━━━━━━━━━━━━━━━━━━\n\n"
 
-for i, (elo, tg, chess) in enumerate(players[:10]):  
-    place = medals[i] if i < 3 else f"{i+1}️⃣"  
+    for i, (elo, tg, chess) in enumerate(players[:10]):
+        place = medals[i] if i < 3 else f"{i+1}️⃣"
 
-    text += (  
-        f"{place} <b>{escape(tg)}</b>\n"  
-        f"♟️ <code>{chess}</code>\n"  
-        f"🔥 Blitz : <b>{elo}</b>\n\n"  
-    )  
+        text += (
+            f"{place} <b>{escape(tg)}</b>\n"
+            f"♟️ <code>{chess}</code>\n"
+            f"🔥 Blitz : <b>{elo}</b>\n\n"
+        )
 
-text += "━━━━━━━━━━━━━━━━━━\n"  
-text += f"👑 <b>ملك البليتز:</b> {escape(players[0][1])} • <b>{players[0][0]}</b>"  
+    text += "━━━━━━━━━━━━━━━━━━\n"
+    text += f"👑 <b>ملك البليتز:</b> {escape(players[0][1])} • <b>{players[0][0]}</b>"
 
-await update.message.reply_text(text, parse_mode="HTML")
-
+    await update.message.reply_text(text, parse_mode="HTML")
 async def unlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-if not update.message.reply_to_message:  
-    await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة اللاعب.")  
-    return  
+    if not update.message.reply_to_message:
+        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة اللاعب.")
+        return
 
-if not await is_admin(update, update.effective_user.id):  
-    await update.message.reply_text("❌ للمشرفين فقط.")  
-    return  
+    if not await is_admin(update, update.effective_user.id):
+        await update.message.reply_text("❌ للمشرفين فقط.")
+        return
 
-target = str(update.message.reply_to_message.from_user.id)  
+    target = str(update.message.reply_to_message.from_user.id)
 
-if target in users:  
-    del users[target]  
-    save_users()  
-    await update.message.reply_text("✅ تم فك الربط.")  
-else:  
-    await update.message.reply_text("❌ اللاعب غير مربوط.")
+    if target in users:
+        del users[target]
+        save_users()
+        await update.message.reply_text("✅ تم فك الربط.")
+    else:
+        await update.message.reply_text("❌ اللاعب غير مربوط.")
 
 async def promotepoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-if not await is_admin(update, update.effective_user.id):  
-    await update.message.reply_text("❌ للمشرفين فقط.")  
-    return  
+    if not await is_admin(update, update.effective_user.id):
+        await update.message.reply_text("❌ للمشرفين فقط.")
+        return
 
-if not update.message.reply_to_message:  
-    await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة العضو.")  
-    return  
+    if not update.message.reply_to_message:
+        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة العضو.")
+        return
 
-user = update.message.reply_to_message.from_user  
-uid = str(user.id)  
+    user = update.message.reply_to_message.from_user
+    uid = str(user.id)
 
-if uid in point_admins:  
-    await update.message.reply_text("❌ هذا العضو مسؤول نقاط بالفعل.")  
-    return  
+    if uid in point_admins:
+        await update.message.reply_text("❌ هذا العضو مسؤول نقاط بالفعل.")
+        return
 
-point_admins.append(uid)  
-save_point_admins()  
+    point_admins.append(uid)
+    save_point_admins()
 
-await update.message.reply_text(
-
+    await update.message.reply_text(
 f"""👑 تم تعيين {get_name(user)} مسؤولًا عن إدارة النقاط بنجاح.
 
 ✅ أصبح بإمكانه:
@@ -389,107 +384,110 @@ f"""👑 تم تعيين {get_name(user)} مسؤولًا عن إدارة الن�
 ➖ خصم النقاط.
 
 🎖️ الصلاحية أصبحت فعالة الآن."""
-)
+    )
+
 
 async def removepoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-if not await is_admin(update, update.effective_user.id):  
-    await update.message.reply_text("❌ للمشرفين فقط.")  
-    return  
+    if not await is_admin(update, update.effective_user.id):
+        await update.message.reply_text("❌ للمشرفين فقط.")
+        return
 
-if not update.message.reply_to_message:  
-    await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة العضو.")  
-    return  
+    if not update.message.reply_to_message:
+        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة العضو.")
+        return
 
-user = update.message.reply_to_message.from_user  
-uid = str(user.id)  
+    user = update.message.reply_to_message.from_user
+    uid = str(user.id)
 
-if uid not in point_admins:  
-    await update.message.reply_text("❌ هذا العضو ليس مسؤول نقاط.")  
-    return  
+    if uid not in point_admins:
+        await update.message.reply_text("❌ هذا العضو ليس مسؤول نقاط.")
+        return
 
-point_admins.remove(uid)  
-save_point_admins()  
+    point_admins.remove(uid)
+    save_point_admins()
 
-await update.message.reply_text(  
-    f"""⚠️ تم سحب صلاحية مسؤول إدارة النقاط من {get_name(user)}.
+    await update.message.reply_text(
+        f"""⚠️ تم سحب صلاحية مسؤول إدارة النقاط من {get_name(user)}.
 
 ❌ لم يعد بإمكانه إضافة أو خصم نقاط اللاعبين.
 
 🔒 تم إلغاء الصلاحية بنجاح."""
-)
+    )
+
 
 async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
-# التأكد من أن الأمر أُرسل بالرد على رسالة
-if not update.message.reply_to_message:
-await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة اللاعب الذي تريد تحديه.")
-return
+    # التأكد من أن الأمر أُرسل بالرد على رسالة
+    if not update.message.reply_to_message:
+        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة اللاعب الذي تريد تحديه.")
+        return
 
-challenger = update.effective_user  
-opponent = update.message.reply_to_message.from_user  
+    challenger = update.effective_user
+    opponent = update.message.reply_to_message.from_user
 
-challenger_id = str(challenger.id)  
-opponent_id = str(opponent.id)  
+    challenger_id = str(challenger.id)
+    opponent_id = str(opponent.id)
 
-# منع التحدي مع البوتات أو منع تحدي الشخص لنفسه  
-if challenger.is_bot or opponent.is_bot:  
-    return  
+    # منع التحدي مع البوتات أو منع تحدي الشخص لنفسه
+    if challenger.is_bot or opponent.is_bot:
+        return
 
-if challenger_id == opponent_id:  
-    await update.message.reply_text("❌ لا يمكنك تحدي نفسك!")  
-    return  
+    if challenger_id == opponent_id:
+        await update.message.reply_text("❌ لا يمكنك تحدي نفسك!")
+        return
 
-# التحقق من أن المتحدي رابط حسابه  
-if challenger_id not in users:  
-    await update.message.reply_text("❌ يجب ربط حسابك أولاً باستخدام /sign")  
-    return  
+    # التحقق من أن المتحدي رابط حسابه
+    if challenger_id not in users:
+        await update.message.reply_text("❌ يجب ربط حسابك أولاً باستخدام /sign")
+        return
 
-# التحقق من أن الطرف الآخر رابط حسابه  
-if opponent_id not in users:  
-    await update.message.reply_text("❌ هذا اللاعب غير مربوط بحساب Chess.com.")  
-    return  
+    # التحقق من أن الطرف الآخر رابط حسابه
+    if opponent_id not in users:
+        await update.message.reply_text("❌ هذا اللاعب غير مربوط بحساب Chess.com.")
+        return
 
-import time  
+    import time
 
-match_id = str(int(time.time()))  
+    match_id = str(int(time.time()))
 
-matches[match_id] = {  
-"player1": challenger_id,  
-"player2": opponent_id,  
-"username1": users[challenger_id],  
-"username2": users[opponent_id],  
-"time": int(time.time()),  
-"status": "active",  
-"results": []
-
+    matches[match_id] = {
+    "player1": challenger_id,
+    "player2": opponent_id,
+    "username1": users[challenger_id],
+    "username2": users[opponent_id],
+    "time": int(time.time()),
+    "status": "active",
+    "results": []
 }
 
-save_matches()  
+    save_matches()
 
-challenger_chess = users[challenger_id]  
-opponent_chess = users[opponent_id]  
+    challenger_chess = users[challenger_id]
+    opponent_chess = users[opponent_id]
 
-challenge_url = f"https://www.chess.com/play/online/new?opponent={opponent_chess}"  
+    challenge_url = f"https://www.chess.com/play/online/new?opponent={opponent_chess}"
 
-text = (  
-f"⚔️ <b>تحدي شطرنج جديد</b>\n"  
-f"━━━━━━━━━━━━━━\n\n"  
-f"👤 <b>{escape(get_name(challenger))}</b>\n"  
-f"♟️ <code>{challenger_chess}</code>\n\n"  
-f"🆚\n\n"  
-f"👤 <b>{escape(get_name(opponent))}</b>\n"  
-f"♟️ <code>{opponent_chess}</code>\n\n"  
-f"━━━━━━━━━━━━━━\n"  
-f"🔗 <a href='{challenge_url}'><b>ابدأ التحدي</b></a>\n\n"  
-f"🏆 بعد انتهاء المباراة استخدم <code>/result</code> لاعتماد النتيجة."
-
+    text = (
+    f"⚔️ <b>تحدي شطرنج جديد</b>\n"
+    f"━━━━━━━━━━━━━━\n\n"
+    f"👤 <b>{escape(get_name(challenger))}</b>\n"
+    f"♟️ <code>{challenger_chess}</code>\n\n"
+    f"🆚\n\n"
+    f"👤 <b>{escape(get_name(opponent))}</b>\n"
+    f"♟️ <code>{opponent_chess}</code>\n\n"
+    f"━━━━━━━━━━━━━━\n"
+    f"🔗 <a href='{challenge_url}'><b>ابدأ التحدي</b></a>\n\n"
+    f"🏆 بعد انتهاء المباراة استخدم <code>/result</code> لاعتماد النتيجة."
 )
 
-await update.message.reply_text(  
-    text,  
-    parse_mode="HTML",  
-    disable_web_page_preview=False  
+    sent = await update.message.reply_text(
+    text,
+    parse_mode="HTML",
+    disable_web_page_preview=False
 )
+matches[match_id]["message_id"] = sent.message_id
+matches[match_id]["chat_id"] = update.effective_chat.id
+save_matches()
 
 app = Application.builder().token(TOKEN).build()
 
