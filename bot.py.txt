@@ -511,7 +511,6 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     "player2": opponent_id,
     "username1": users[challenger_id],
     "username2": users[opponent_id],
-    "message_id": 0,
     "time": int(time.time()),
     "status": "active",
     "results": []
@@ -537,14 +536,12 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     f"🏆 بعد انتهاء المباراة استخدم <code>/result</code> لاعتماد النتيجة."
 )
 
-        msg = await update.message.reply_text(
+
+    await update.message.reply_text(
         text,
         parse_mode="HTML",
         disable_web_page_preview=False
     )
-
-    matches[match_id]["message_id"] = msg.message_id
-    save_matches()
 
 async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -556,20 +553,7 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ هذا الأمر للمشرفين ومسؤولي النقاط فقط.")
         return
 
-    reply_id = str(update.message.reply_to_message.message_id)
-
-    match = None
-
-    for match_id, data in matches.items():
-        if str(data.get("message_id")) == reply_id:
-            match = data
-            break
-
-    if not match:
-        await update.message.reply_text("❌ هذه ليست رسالة تحدي صالحة.")
-        return
-
-    await update.message.reply_text("✅ تم العثور على التحدي.")
+    await update.message.reply_text("✅ تم التحقق من الصلاحيات.")
 
 app = Application.builder().token(TOKEN).build()
 
