@@ -537,7 +537,6 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     f"🏆 بعد انتهاء المباراة استخدم <code>/result</code> لاعتماد النتيجة."
 )
 
-
         msg = await update.message.reply_text(
         text,
         parse_mode="HTML",
@@ -546,7 +545,6 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     matches[match_id]["message_id"] = msg.message_id
     save_matches()
-
 
 async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
