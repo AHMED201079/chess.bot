@@ -511,6 +511,7 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     "player2": opponent_id,
     "username1": users[challenger_id],
     "username2": users[opponent_id],
+    "message_id": 0,
     "time": int(time.time()),
     "status": "active",
     "results": []
@@ -537,11 +538,15 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
 )
 
 
-    await update.message.reply_text(
-        text,
-        parse_mode="HTML",
-        disable_web_page_preview=False
-    )
+    msg = await update.message.reply_text(
+    text,
+    parse_mode="HTML",
+    disable_web_page_preview=False
+)
+
+matches[match_id]["message_id"] = msg.message_id
+save_matches()
+
 
 async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
