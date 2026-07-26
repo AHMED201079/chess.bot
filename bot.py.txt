@@ -466,13 +466,18 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     challenge_url = f"https://www.chess.com/play/online/new?opponent={opponent_chess}"
 
     text = (
-        f"⚔️ <b>تحدي شطرنج جديد!</b>\n\n"
-        f"👤 <b>المتحدي:</b> {escape(get_name(challenger))} (<code>{challenger_chess}</code>)\n"
-        f"🆚\n"
-        f"👤 <b>الخصم:</b> {escape(get_name(opponent))} (<code>{opponent_chess}</code>)\n\n"
-        f"🔗 <a href='{challenge_url}'><b>اضغط هنا لبدء التحدي واختيار الوقت</b></a>\n\n"
-        f"♟️ بعد انتهاء المباراة، استخدم أمر <code>/result</code> لاعتماد النتيجة."
-    )
+    f"⚔️ <b>تحدي شطرنج جديد</b>\n"
+    f"━━━━━━━━━━━━━━\n\n"
+    f"👤 <b>{escape(get_name(challenger))}</b>\n"
+    f"♟️ <code>{challenger_chess}</code>\n\n"
+    f"🆚\n\n"
+    f"👤 <b>{escape(get_name(opponent))}</b>\n"
+    f"♟️ <code>{opponent_chess}</code>\n\n"
+    f"━━━━━━━━━━━━━━\n"
+    f"🔗 <a href='{challenge_url}'><b>ابدأ التحدي</b></a>\n\n"
+    f"🏆 بعد انتهاء المباراة استخدم <code>/result</code> لاعتماد النتيجة."
+)
+
 
     await update.message.reply_text(
         text,
