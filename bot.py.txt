@@ -485,10 +485,8 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parse_mode="HTML",
     disable_web_page_preview=False
 )
-
 matches[match_id]["message_id"] = sent.message_id
 matches[match_id]["chat_id"] = update.effective_chat.id
-
 save_matches()
 
 app = Application.builder().token(TOKEN).build()
