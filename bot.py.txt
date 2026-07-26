@@ -451,13 +451,14 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     match_id = str(int(time.time()))
 
     matches[match_id] = {
-        "player1": challenger_id,
-        "player2": opponent_id,
-        "username1": users[challenger_id],
-        "username2": users[opponent_id],
-        "time": int(time.time()),
-        "status": "pending"
-    }
+    "player1": challenger_id,
+    "player2": opponent_id,
+    "username1": users[challenger_id],
+    "username2": users[opponent_id],
+    "time": int(time.time()),
+    "status": "active",
+    "results": []
+}
 
     save_matches()
 
