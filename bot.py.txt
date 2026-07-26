@@ -543,6 +543,17 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
         disable_web_page_preview=False
     )
 
+async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not update.message.reply_to_message:
+        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة التحدي.")
+        return
+
+    if not await is_admin(update, update.effective_user.id) and str(update.effective_user.id) not in point_admins:
+        await update.message.reply_text("❌ هذا الأمر للمشرفين ومسؤولي النقاط فقط.")
+        return
+
+    await update.message.reply_text("✅ تم التحقق من الصلاحيات.")
 
 app = Application.builder().token(TOKEN).build()
 
