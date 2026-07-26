@@ -542,10 +542,10 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text,
     parse_mode="HTML",
     disable_web_page_preview=False
-)
+   )
 
-matches[match_id]["message_id"] = msg.message_id
-save_matches()
+   matches[match_id]["message_id"] =          msg.message_id
+   save_matches()
 
 
 async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
