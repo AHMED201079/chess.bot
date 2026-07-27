@@ -547,7 +547,6 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     matches[match_id]["message_id"] =          msg.message_id
     save_matches()
 
-
 async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not update.message.reply_to_message:
@@ -561,19 +560,17 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_id = update.message.reply_to_message.message_id
 
     match = None
-    match_key = None
 
-    for key, data in matches.items():
+    for data in matches.values():
         if data.get("message_id") == reply_id:
             match = data
-            match_key = key
             break
 
     if not match:
         await update.message.reply_text("❌ هذه ليست رسالة تحدي.")
         return
 
-        result = get_match_result(
+    result = get_match_result(
         match["username1"],
         match["username2"],
         match["time"]
@@ -591,6 +588,7 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # التعادل
     if result["winner"] == "draw":
         match["status"] = "finished"
         match["result"] = "draw"
@@ -600,6 +598,7 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id,
             message_id=match["message_id"],
             parse_mode="HTML",
+            disable_web_page_preview=False,
             text=f"""
 🤝 <b>انتهت المباراة</b>
 ━━━━━━━━━━━━━━
@@ -612,7 +611,11 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 """
         )
 
-            if result["winner"] == match["username1"].lower():
+        await update.message.reply_text("✅ تم اعتماد نتيجة التعادل.")
+        return
+
+    # تحديد الفائز والخاسر
+    if result["winner"] == match["username1"].lower():
         winner_id = match["player1"]
         loser_id = match["player2"]
         winner_name = match["username1"]
@@ -623,11 +626,11 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
         winner_name = match["username2"]
         loser_name = match["username1"]
 
-    # إضافة نقاط للفائز
+    # نقاط الفائز
     winner_old = points.get(winner_id, 20)
     points[winner_id] = winner_old + 8
 
-    # خصم نقاط من الخاسر حسب رصيده
+    # خصم نقاط الخاسر
     loser_old = points.get(loser_id, 20)
 
     if loser_old >= 200:
@@ -641,16 +644,19 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     save_points()
 
+    # عدد الانتصارات اليومية
     today = datetime.now().strftime("%Y-%m-%d")
 
     if today not in daily_wins:
         daily_wins[today] = {}
 
     daily_wins[today][winner_id] = daily_wins[today].get(winner_id, 0) + 1
+
     save_daily_wins()
 
     match["status"] = "finished"
     match["result"] = result["winner"]
+
     save_matches()
 
     await context.bot.edit_message_text(
@@ -662,12 +668,15 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🏁 <b>انتهت المباراة</b>
 ━━━━━━━━━━━━━━
 
-👑 <b>الفائز:</b> <code>{winner_name}</code>
+👑 <b>الفائز</b>
+<code>{winner_name}</code>
 
 🏆 <b>المكافأة:</b> +8 نقطة
 
-📉 <b>الخاسر:</b> <code>{loser_name}</code>
-➖ خصم: {lose_points} نقطة
+📉 <b>الخاسر</b>
+<code>{loser_name}</code>
+
+➖ <b>الخصم:</b> {lose_points} نقطة
 
 🔗 <a href="{result['game_url']}">عرض المباراة</a>
 
@@ -678,6 +687,7 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "✅ تم اعتماد النتيجة وتحديث النقاط بنجاح."
     )
+
 
 app = Application.builder().token(TOKEN).build()
 
