@@ -558,7 +558,22 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ هذا الأمر للمشرفين ومسؤولي النقاط فقط.")
         return
 
-    await update.message.reply_text("✅ تم التحقق من الصلاحيات.")
+    reply_id = update.message.reply_to_message.message_id
+
+    match = None
+    match_key = None
+
+    for key, data in matches.items():
+        if data.get("message_id") == reply_id:
+            match = data
+            match_key = key
+            break
+
+    if not match:
+        await update.message.reply_text("❌ هذه ليست رسالة تحدي.")
+        return
+
+    await update.message.reply_text("✅ تم العثور على التحدي.")
 
 app = Application.builder().token(TOKEN).build()
 
