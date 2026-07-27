@@ -573,8 +573,21 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ هذه ليست رسالة تحدي.")
         return
 
-    await update.message.reply_text("✅ تم العثور على التحدي.")
+    result = get_match_result(
+    match["username1"],
+    match["username2"],
+    match["time"]
+)
 
+if result is None:
+    await update.message.reply_text(
+        "❌ لم يتم العثور على مباراة بين اللاعبين بعد."
+    )
+    return
+
+await update.message.reply_text(
+    f"✅ تم العثور على المباراة.\n\n{result['game_url']}"
+)
 app = Application.builder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
