@@ -579,10 +579,11 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     match["time"]
 )
 
-if result is None:
+    if result is None:
     await update.message.reply_text(
         "❌ لم يتم العثور على مباراة بين اللاعبين بعد."
     )
+
     return
 
 await update.message.reply_text(
