@@ -579,15 +579,40 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     match["time"]
 )
 
-    if result is None:
+        if result is None:
         await update.message.reply_text(
-            "❌ لم يتم العثور على مباراة بين اللاعبين بعد."
+            "⏳ لم يتم العثور على مباراة بين اللاعبين بعد."
         )
         return
 
-    await update.message.reply_text(
-        f"✅ تم العثور على المباراة.\n\n{result['game_url']}"
-    )
+    if match["status"] == "finished":
+        await update.message.reply_text(
+            "❌ تم اعتماد نتيجة هذه المباراة مسبقًا."
+        )
+        return
+
+    if result["winner"] == "draw":
+        match["status"] = "finished"
+        match["result"] = "draw"
+        save_matches()
+
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=match["message_id"],
+            parse_mode="HTML",
+            text=f"""
+🤝 <b>انتهت المباراة</b>
+━━━━━━━━━━━━━━
+
+⚖️ <b>النتيجة:</b> تعادل
+
+🔗 <a href="{result['game_url']}">عرض المباراة</a>
+
+✅ تم اعتماد النتيجة رسميًا.
+"""
+        )
+
+        return
 
 app = Application.builder().token(TOKEN).build()
 
