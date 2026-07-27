@@ -573,14 +573,14 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ هذه ليست رسالة تحدي.")
         return
 
-    result = get_match_result(
-    match["username1"],
-    match["username2"],
-    match["time"]
-)
+        result = get_match_result(
+        match["username1"],
+        match["username2"],
+        match["time"]
+    )
 
     if result is None:
-    await update.message.reply_text(
+        await update.message.reply_text(
             "⏳ لم يتم العثور على مباراة بين اللاعبين بعد."
         )
         return
