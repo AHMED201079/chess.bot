@@ -101,22 +101,21 @@ def get_games(username):
             return []
 
         archives = r.json().get("archives", [])
-        if not archives:
-            return []
 
-        last_archive = archives[-1]
+        all_games = []
 
-        r = requests.get(last_archive, timeout=10)
-        if r.status_code != 200:
-            return []
+        for archive in archives:
+            try:
+                r = requests.get(archive, timeout=10)
+                if r.status_code == 200:
+                    all_games.extend(r.json().get("games", []))
+            except:
+                pass
 
-        return r.json().get("games", [])
+        return all_games
 
     except:
         return []
-def get_match_result(player1, player2, challenge_time):
-    games = get_games(player1)
-    games += get_games(player2)
 
     for game in reversed(games):
         end_time = game.get("end_time", 0)
