@@ -576,10 +576,10 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
         match["username2"],
         match["time"]
     )
-       print(match["username1"])
-       print(match["username2"])
-       print(match["time"])
-       print(result)
+print(match["username1"])
+print(match["username2"])
+print(match["time"])
+print(result)
 
     if result is None:
         await update.message.reply_text(
