@@ -116,6 +116,7 @@ def get_games(username):
         return []
 def get_match_result(player1, player2, challenge_time):
     games = get_games(player1)
+    games += get_games(player2)
 
     for game in reversed(games):
         end_time = game.get("end_time", 0)
