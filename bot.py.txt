@@ -581,7 +581,7 @@ print(match["username2"])
 print(match["time"])
 print(result)
 
-    if result is None:
+        if result is None:
         await update.message.reply_text(
             "⏳ لم يتم العثور على مباراة بين اللاعبين بعد."
         )
