@@ -256,6 +256,30 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
 )
 
 async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    OWNER_ID = 6785722062  # حط هنا Telegram ID بتاعك
+
+    user = update.effective_user
+
+    # إذا كان المالك
+    if user.id == OWNER_ID:
+        await update.message.reply_text(
+            """👑 AHMED ESSAM
+
+━━━━━━━━━━━━━━━━━━
+
+🏆 المالك الرسمي لـ CHECK MATE
+
+📜 غير مشارك في نظام النقاط أو الترتيب.
+
+⚙️ المسؤول عن إدارة البطولات وتطوير النظام.
+
+━━━━━━━━━━━━━━━━━━
+
+♟️ Founder & Owner"""
+        )
+        return
+
     msg = update.message
 
     if msg.reply_to_message:
