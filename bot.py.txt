@@ -8,7 +8,7 @@ import json
 import os
 from datetime import datetime
 
-TOKEN = "8953879123:AAGRRihV_yxhMSSpkwdcAArtZyS3hUaUjaM"
+TOKEN = "8953879123:AAFtuZZoHSrHlf7b7037fJYAyWsPYjeDyI4"
 
 DATA_FILE = "users.json"
 POINTS_FILE = "points.json"
