@@ -190,25 +190,6 @@ def get_chess_stats(username):
         "rate": rate
     }
 
-        archives = r.json().get("archives", [])
-
-        all_games = []
-
-        for archive in archives:
-            try:
-                r = requests.get(archive, timeout=10)
-
-                if r.status_code == 200:
-                    all_games.extend(r.json().get("games", []))
-
-            except:
-                pass
-
-        return all_games
-
-    except:
-        return []
-
 
 def get_match_result(player1, player2, challenge_time):
 
@@ -880,6 +861,21 @@ f"""
 """
 )
 
+def get_level(score):
+
+    if score < 50:
+        return "★★☆☆☆"
+
+    elif score < 150:
+        return "★★★☆☆"
+
+    elif score < 300:
+        return "★★★★☆"
+
+    else:
+        return "★★★★★"
+
+
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = update.effective_user
@@ -997,19 +993,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
 
-def get_level(score):
 
-    if score < 50:
-        return "★★☆☆☆"
-
-    elif score < 150:
-        return "★★★☆☆"
-
-    elif score < 300:
-        return "★★★★☆"
-
-    else:
-        return "★★★★★"
 
 
 app = Application.builder().token(TOKEN).build()
