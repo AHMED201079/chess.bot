@@ -938,7 +938,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     else:
 
-        badge_text = "لا توجد إنجازات"
+        badge_text = "There are no achievements"
 
 
     text = f"""
@@ -946,7 +946,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ━━━━━━━━━━━━━━━━━━
 
-🏷️ <b>الاسم:</b> {escape(name)}
+🏷️ <b>Username:</b> {escape(name)}
 
 ♟️ <b>Chess.com:</b>
 <code>{chess_username}</code>
@@ -963,9 +963,9 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🏆 <b>CHECK MATE POINTS</b>
 
-⭐ النقاط: <b>{score}</b>
+⭐ Points: <b>{score}</b>
 
-🎖️ الرتبة:
+🎖️ Rank:
 <b>{rank}</b>
 
 ━━━━━━━━━━━━━━━━━━
