@@ -9,6 +9,7 @@ import os
 from datetime import datetime
 
 TOKEN = "8953879123:AAFtuZZoHSrHlf7b7037fJYAyWsPYjeDyI4"
+OWNER_ID = 6785722062
 
 DATA_FILE = "users.json"
 POINTS_FILE = "points.json"
