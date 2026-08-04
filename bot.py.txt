@@ -940,50 +940,53 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         badge_text = "لا توجد إنجازات"
 
 
-    text = f"""
+   text = f"""
 👤 <b>PLAYER PROFILE</b>
 
-🏷️ الاسم: {escape(name)}
+━━━━━━━━━━━━━━━━━━
 
-♟️ Chess.com:
+🏷️ <b>الاسم:</b> {escape(name)}
+
+♟️ <b>Chess.com:</b>
 <code>{chess_username}</code>
 
-━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━
 
-📊 Rapid: {rating['rapid']}
-⚡ Blitz: {rating['blitz']}
-🔥 Bullet: {rating['bullet']}
+📊 <b>RATING</b>
 
-━━━━━━━━━━━━━━
+⚡ Rapid : <b>{rating['rapid']}</b>
+🔥 Blitz : <b>{rating['blitz']}</b>
+💣 Bullet : <b>{rating['bullet']}</b>
 
-🏆 النقاط: {score}
-🎖️ الرتبة: {rank}
+━━━━━━━━━━━━━━━━━━
 
-━━━━━━━━━━━━━━
+🏆 <b>CHECK MATE POINTS</b>
 
-🏅 <b>ACHIEVEMENTS</b>
+⭐ النقاط: <b>{score}</b>
+
+🎖️ الرتبة:
+<b>{rank}</b>
+
+━━━━━━━━━━━━━━━━━━
+
+
+🏅 <b>✨ ACHIEVEMENTS ✨</b>
+
+        🏆 🏆 🏆
 
 {badge_text}
 
-━━━━━━━━━━━━━━
+        🏆 🏆 🏆
 
-📈 <b>STATISTICS</b>
 
-🎮 المباريات: {stats['games']}
+━━━━━━━━━━━━━━━━━━
 
-✅ فوز: {stats['wins']}
-
-🤝 تعادل: {stats['draws']}
-
-❌ خسارة: {stats['losses']}
-
-📊 نسبة الفوز: {stats['rate']}%
-
-━━━━━━━━━━━━━━
-
-⭐ مستوى الحساب
+⭐ <b>ACCOUNT LEVEL</b>
 
 {level}
+
+━━━━━━━━━━━━━━━━━━
+
 
 """
 
