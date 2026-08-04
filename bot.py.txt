@@ -927,7 +927,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━
 📊 <b>RATING</b>
 
-      ⏱️ Rapid  <b>{rating['rapid']}</b>     🔥 Blitz <b>{rating['blitz']}</b> 🔫Bullet<b>{rating['bullet']}</b>        
+      ⏱️ Rapid  <b>{rating['rapid']}</b>     🔥 Blitz <b>{rating['blitz']}</b> 🔫                  Bullet<b>{rating['bullet']}</b>        
 ━━━━━━━━━━━━━━━━━━
 🏆 <b>CHECK MATE RANK</b>
 
