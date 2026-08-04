@@ -964,7 +964,58 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
 
+async def removebadge(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text("❌ هذا الأمر متاح للمالك فقط.")
+        return
+
+    if not update.message.reply_to_message:
+        await update.message.reply_text(
+            "❌ استخدم الأمر بالرد على رسالة اللاعب.\n\nمثال:\n/removebadge سيد التكتيك"
+        )
+        return
+
+    if not context.args:
+        await update.message.reply_text("❌ اكتب اسم الإنجاز المراد حذفه.")
+        return
+
+    user = update.message.reply_to_message.from_user
+    uid = str(user.id)
+
+    if uid not in badges:
+        await update.message.reply_text("❌ هذا اللاعب لا يملك أي إنجازات.")
+        return
+
+    badge = " ".join(context.args)
+
+    removed = False
+
+    for b in badges[uid][:]:
+        if b.replace("★", "").strip() == badge:
+            badges[uid].remove(b)
+            removed = True
+
+    if not removed:
+        await update.message.reply_text("❌ هذا الإنجاز غير موجود.")
+        return
+
+    if not badges[uid]:
+        del badges[uid]
+
+    save_badges()
+
+    await update.message.reply_text(
+f"""🗑️ تم حذف الإنجاز
+
+👤 اللاعب:
+{get_name(user)}
+
+❌ الإنجاز المحذوف:
+{badge}
+
+✅ تمت العملية بنجاح."""
+    )
 
 app = Application.builder().token(TOKEN).build()
 
@@ -982,6 +1033,7 @@ app.add_handler(CommandHandler("play", play))
 app.add_handler(CommandHandler("result", result))
 app.add_handler(CommandHandler("grant", grant))
 app.add_handler(CommandHandler("profile", profile))
+app.add_handler(CommandHandler("removebadge", removebadge))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.SUPERGROUP | filters.ChatType.GROUP), handle_points))
 
