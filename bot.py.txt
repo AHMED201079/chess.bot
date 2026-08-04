@@ -769,7 +769,6 @@ save_stats()
 
 📉 <b>الخاسر</b>
 <code>{loser_name}</code>
-
 ➖ <b>الخصم:</b> {lose_points} نقطة
 
 🔗 <a href="{result['game_url']}">عرض المباراة</a>
