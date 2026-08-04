@@ -940,7 +940,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         badge_text = "لا توجد إنجازات"
 
 
-   text = f"""
+    text = f"""
 👤 <b>PLAYER PROFILE</b>
 
 ━━━━━━━━━━━━━━━━━━
