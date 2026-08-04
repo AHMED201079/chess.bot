@@ -877,126 +877,98 @@ def get_level(score):
         return "★★★★★"
 
 
+
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = update.effective_user
 
-
     if update.message.reply_to_message:
         user = update.message.reply_to_message.from_user
 
-
     uid = str(user.id)
-
 
     name = get_name(user)
 
-
-    if uid not in users:
-
-        chess_username = "غير مربوط"
-
-        rating = {
-            "rapid":"N/A",
-            "blitz":"N/A",
-            "bullet":"N/A"
-        }
-
-        stats = {
-            "games":0,
-            "wins":0,
-            "draws":0,
-            "losses":0,
-            "rate":0
-        }
-
-    else:
-
+    if uid in users:
         chess_username = users[uid]
-
         rating = get_elo(chess_username)
+    else:
+        chess_username = "غير مربوط"
+        rating = {
+            "rapid": "N/A",
+            "blitz": "N/A",
+            "bullet": "N/A"
+        }
 
-        stats = get_chess_stats(chess_username)
-
-
-
-    score = points.get(uid,20)
+    score = points.get(uid, 20)
 
     rank = get_rank(score)
 
     level = get_level(score)
 
-
-    user_badges = badges.get(uid,[])
-
+    user_badges = badges.get(uid, [])
 
     if user_badges:
-
         badge_text = "\n".join(
             [f"🏅 {b}" for b in user_badges]
         )
-
     else:
-
-        badge_text = "There are no achievements"
+        badge_text = "There are no achievements⛔"
 
 
     text = f"""
 👤 <b>PLAYER PROFILE</b>
-
 ━━━━━━━━━━━━━━━━━━
 
-🏷️ <b>Username:</b> {escape(name)}
+🏷️ <b>{escape(name)}</b>
 
-♟️ <b>Chess.com:</b>
+♟️ <b>Chess.com</b>
 <code>{chess_username}</code>
 
-━━━━━━━━━━━━━━━━━━
 
+━━━━━━━━━━━━━━━━━━
 📊 <b>RATING</b>
 
-⚡ Rapid : <b>{rating['rapid']}</b>
-🔥 Blitz : <b>{rating['blitz']}</b>
-💣 Bullet : <b>{rating['bullet']}</b>
+⚡ Rapid     🔥 Blitz     💣 Bullet
+
+<b>{rating['rapid']}</b>       <b>{rating['blitz']}</b>       <b>{rating['bullet']}</b>
+
 
 ━━━━━━━━━━━━━━━━━━
-
-🏆 <b>CHECK MATE POINTS</b>
+🏆 <b>CHECK MATE RANK</b>
 
 ⭐ Points: <b>{score}</b>
 
 🎖️ Rank:
 <b>{rank}</b>
 
+⭐ Level:
+<b>{level}</b>
+
+
 ━━━━━━━━━━━━━━━━━━
 
+          🏅
+✨ <b>ACHIEVEMENTS</b> ✨
 
-🏅 <b>✨ ACHIEVEMENTS ✨</b>
-
-        🏆 🏆 🏆
+🏆 🏆 🏆
 
 {badge_text}
 
-        🏆 🏆 🏆
+🏆 🏆 🏆
 
 
 ━━━━━━━━━━━━━━━━━━
 
-⭐ <b>ACCOUNT LEVEL</b>
-
-{level}
-
-━━━━━━━━━━━━━━━━━━
-
+♟️ <b>CHECK MATE</b>
+<b>CHESS PROFILE</b>
 
 """
-
 
     await update.message.reply_text(
         text,
         parse_mode="HTML"
     )
-
 
 
 
