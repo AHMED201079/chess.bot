@@ -17,6 +17,7 @@ MATCHES_FILE = "matches.json"
 DAILY_WINS_FILE = "dailywins.json"
 POINT_ADMINS_FILE = "point_admins.json"
 BADGES_FILE = "badges.json"
+STATS_FILE = "stats.json"
 
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r") as f:
@@ -54,6 +55,12 @@ if os.path.exists(BADGES_FILE):
 else:
     badges = {}
 
+if os.path.exists(STATS_FILE):
+    with open(STATS_FILE, "r") as f:
+        stats = json.load(f)
+else:
+    stats = {}
+
 def save_users():
     with open(DATA_FILE, "w") as f:
         json.dump(users, f)
@@ -65,6 +72,10 @@ def save_point_admins():
 def save_badges():
     with open(BADGES_FILE, "w", encoding="utf-8") as f:
         json.dump(badges, f, ensure_ascii=False, indent=4)
+
+def save_stats():
+    with open(STATS_FILE, "w") as f:
+        json.dump(stats, f)
 
 def save_points():
     with open(POINTS_FILE, "w") as f:
@@ -692,6 +703,26 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     save_points()
 
+# تحديث الإحصائيات
+
+for uid in [winner_id, loser_id]:
+
+    if uid not in stats:
+        stats[uid] = {
+            "matches":0,
+            "wins":0,
+            "losses":0,
+            "draws":0
+        }
+
+stats[winner_id]["matches"] += 1
+stats[winner_id]["wins"] += 1
+
+stats[loser_id]["matches"] += 1
+stats[loser_id]["losses"] += 1
+
+save_stats()
+
     # عدد الانتصارات اليومية
     today = datetime.now().strftime("%Y-%m-%d")
 
@@ -704,6 +735,21 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     match["status"] = "finished"
     match["result"] = result["winner"]
+for uid in [match["player1"], match["player2"]]:
+
+    if uid not in stats:
+        stats[uid] = {
+            "matches":0,
+            "wins":0,
+            "losses":0,
+            "draws":0
+        }
+
+    stats[uid]["matches"] += 1
+    stats[uid]["draws"] += 1
+
+save_stats()
+
 
     save_matches()
 
