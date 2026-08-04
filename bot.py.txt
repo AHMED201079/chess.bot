@@ -794,7 +794,7 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def grant(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if update.effective_user.id != OWNER_ID:
+    if update.effective_user.id 6785722062 = OWNER_ID:
         await update.message.reply_text(
             "❌ هذا الأمر متاح للمالك فقط."
         )
