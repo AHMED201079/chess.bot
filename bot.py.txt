@@ -705,6 +705,22 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # تحديث الإحصائيات
 
+for uid in [winner_id, loser_id]:
+
+    if uid not in stats:
+        stats[uid] = {
+            "matches":0,
+            "wins":0,
+            "losses":0,
+            "draws":0
+        }
+
+stats[winner_id]["matches"] += 1
+stats[winner_id]["wins"] += 1
+
+stats[loser_id]["matches"] += 1
+stats[loser_id]["losses"] += 1
+
 save_stats()
 
     # عدد الانتصارات اليومية
@@ -719,6 +735,18 @@ save_stats()
 
     match["status"] = "finished"
     match["result"] = result["winner"]
+for uid in [match["player1"], match["player2"]]:
+
+    if uid not in stats:
+        stats[uid] = {
+            "matches":0,
+            "wins":0,
+            "losses":0,
+            "draws":0
+        }
+
+    stats[uid]["matches"] += 1
+    stats[uid]["draws"] += 1
 
 save_stats()
 
@@ -741,6 +769,7 @@ save_stats()
 
 📉 <b>الخاسر</b>
 <code>{loser_name}</code>
+
 ➖ <b>الخصم:</b> {lose_points} نقطة
 
 🔗 <a href="{result['game_url']}">عرض المباراة</a>
