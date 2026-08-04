@@ -738,51 +738,69 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def grant(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    OWNER_ID = 6785722062
-
     if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("❌ هذا الأمر للمالك فقط.")
+        await update.message.reply_text(
+            "❌ هذا الأمر متاح للمالك فقط."
+        )
         return
 
     if not update.message.reply_to_message:
-        await update.message.reply_text("❌ استخدم الأمر بالرد على اللاعب.")
+        await update.message.reply_text(
+            "❌ استخدم الأمر بالرد على رسالة اللاعب.\n\nمثال:\n/grant 👑 THE FINAL KING"
+        )
         return
 
     if not context.args:
-        await update.message.reply_text("❌ اكتب اسم الوسام.")
+        await update.message.reply_text(
+            "❌ اكتب اسم الوسام بعد الأمر."
+        )
         return
 
-    target = update.message.reply_to_message.from_user
-    uid = str(target.id)
+
+    user = update.message.reply_to_message.from_user
+    uid = str(user.id)
 
     badge = " ".join(context.args)
+
 
     if uid not in badges:
         badges[uid] = []
 
-    if badge in badges[uid]:
-        await update.message.reply_text("❌ اللاعب يمتلك هذا الوسام بالفعل.")
-        return
 
-    badges[uid].append(badge)
+    # إضافة نجمة ★ إذا كان الوسام موجود
+    existing = None
+
+    for b in badges[uid]:
+        if b.replace("★","").strip() == badge:
+            existing = b
+            break
+
+
+    if existing:
+
+        index = badges[uid].index(existing)
+        badges[uid][index] = existing + " ★"
+
+    else:
+        badges[uid].append(badge)
+
+
     save_badges()
 
-    await update.message.reply_text(
-f"""🏅 <b>Achievement Granted</b>
 
-━━━━━━━━━━━━━━
+    await update.message.reply_text(
+f"""
+🏅 تم تحديث إنجازات اللاعب
 
 👤 اللاعب:
-{escape(get_name(target))}
+{get_name(user)}
 
-🏆 الوسام:
-{escape(badge)}
+🏆 الإنجاز:
+{badge}
 
-━━━━━━━━━━━━━━
-
-✅ تم منح الوسام بنجاح.
-""",
-parse_mode="HTML")
+✅ تمت الإضافة بنجاح
+"""
+)
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
