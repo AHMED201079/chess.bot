@@ -16,6 +16,7 @@ POINTS_FILE = "points.json"
 MATCHES_FILE = "matches.json"
 DAILY_WINS_FILE = "dailywins.json"
 POINT_ADMINS_FILE = "point_admins.json"
+BADGES_FILE = "badges.json"
 
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r") as f:
@@ -47,6 +48,12 @@ if os.path.exists(POINT_ADMINS_FILE):
 else:
     point_admins = []
 
+if os.path.exists(BADGES_FILE):
+    with open(BADGES_FILE, "r", encoding="utf-8") as f:
+        badges = json.load(f)
+else:
+    badges = {}
+
 def save_users():
     with open(DATA_FILE, "w") as f:
         json.dump(users, f)
@@ -54,6 +61,10 @@ def save_users():
 def save_point_admins():
     with open(POINT_ADMINS_FILE, "w") as f:
         json.dump(point_admins, f)
+
+def save_badges():
+    with open(BADGES_FILE, "w", encoding="utf-8") as f:
+        json.dump(badges, f, ensure_ascii=False, indent=4)
 
 def save_points():
     with open(POINTS_FILE, "w") as f:
