@@ -1159,6 +1159,74 @@ async def top_callback(query, context):
         ])
     )
 
+async def champions_callback(query, context):
+
+    text = "👑 <b>THE CHAMPIONS</b>\n"
+    text += "━━━━━━━━━━━━━━━━━━\n\n"
+
+    if not badges:
+
+        text += "❌ لا يوجد أبطال حتى الآن."
+
+    else:
+
+        for uid, user_badges in badges.items():
+
+            try:
+                member = await context.bot.get_chat_member(
+                    query.message.chat.id,
+                    int(uid)
+                )
+
+                name = get_name(member.user)
+
+            except:
+
+                name = users.get(uid, uid)
+
+            text += f"👤 <b>{escape(name)}</b>\n"
+
+            for badge in user_badges:
+                text += f"🏅 {escape(badge)}\n"
+
+            text += "\n━━━━━━━━━━━━━━━━━━\n\n"
+
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        ])
+    )
+
+async def link_callback(query, context):
+
+    text = """
+🔗 <b>LINK CHESS.COM ACCOUNT</b>
+
+━━━━━━━━━━━━━━━━━━
+
+لربط حسابك اكتب الأمر التالي:
+
+<code>/sign username</code>
+
+مثال:
+
+<code>/sign Hikaru</code>
+
+━━━━━━━━━━━━━━━━━━
+
+بعد الربط ستظهر بياناتك داخل النظام تلقائياً.
+"""
+
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        ])
+    )
+
 app = Application.builder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
