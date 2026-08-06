@@ -501,7 +501,8 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += f"👑 المتصدر: <b>{escape(leader_name)}</b> بـ <code>{leader_score}</code> نقطة"
 
     await update.message.reply_text(text, parse_mode="HTML")
-async def topeloR(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def toprapid_callback(query, context):
     players = []
 
     for uid, username in users.items():
@@ -513,7 +514,7 @@ async def topeloR(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
 
         try:
-            member = await context.bot.get_chat_member(update.effective_chat.id, int(uid))
+            member = await context.bot.get_chat_member(query.message.chat.id, int(uid))
             tg_name = get_name(member.user)
         except:
             tg_name = username
@@ -521,7 +522,12 @@ async def topeloR(update: Update, context: ContextTypes.DEFAULT_TYPE):
         players.append((rapid, tg_name, username))
 
     if not players:
-        await update.message.reply_text("❌ لا يوجد لاعبين مربوطين.")
+        await query.edit_message_text(
+            "❌ لا يوجد لاعبين مربوطين.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+            ])
+        )
         return
 
     players.sort(reverse=True)
@@ -543,8 +549,18 @@ async def topeloR(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += "━━━━━━━━━━━━━━━━━━\n"
     text += f"👑 <b>ملك الرابيد:</b> {escape(players[0][1])} • <b>{players[0][0]}</b>"
 
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        ])
+    )
+
     await update.message.reply_text(text, parse_mode="HTML")
-async def topeloB(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+
+async def topblitz_callback(query, context):
     players = []
 
     for uid, username in users.items():
@@ -556,7 +572,7 @@ async def topeloB(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
 
         try:
-            member = await context.bot.get_chat_member(update.effective_chat.id, int(uid))
+            member = await context.bot.get_chat_member(query.message.chat.id, int(uid))
             tg_name = get_name(member.user)
         except:
             tg_name = username
@@ -564,7 +580,12 @@ async def topeloB(update: Update, context: ContextTypes.DEFAULT_TYPE):
         players.append((blitz, tg_name, username))
 
     if not players:
-        await update.message.reply_text("❌ لا يوجد لاعبين مربوطين.")
+        await query.edit_message_text(
+            "❌ لا يوجد لاعبين مربوطين.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+            ])
+        )
         return
 
     players.sort(reverse=True)
@@ -585,6 +606,14 @@ async def topeloB(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text += "━━━━━━━━━━━━━━━━━━\n"
     text += f"👑 <b>ملك البليتز:</b> {escape(players[0][1])} • <b>{players[0][0]}</b>"
+
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        ])
+    )
 
     await update.message.reply_text(text, parse_mode="HTML")
 async def unlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1217,6 +1246,97 @@ async def link_callback(query, context):
 ━━━━━━━━━━━━━━━━━━
 
 بعد الربط ستظهر بياناتك داخل النظام تلقائياً.
+"""
+
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        ])
+    )
+
+async def profile_callback(query, context):
+
+    user = query.from_user
+    uid = str(user.id)
+
+    name = get_name(user)
+
+    if uid not in users:
+
+        chess_username = "غير مربوط"
+
+        rating = {
+            "rapid": "N/A",
+            "blitz": "N/A",
+            "bullet": "N/A"
+        }
+
+    else:
+
+        chess_username = users[uid]
+        rating = get_elo(chess_username)
+
+    score = points.get(uid, 20)
+
+    rank = get_rank(score)
+
+    level = get_level(score)
+
+    user_badges = badges.get(uid, [])
+
+    if user_badges:
+
+        badge_text = "\n".join(
+            [f"🏅 {escape(b)}" for b in user_badges]
+        )
+
+    else:
+
+        badge_text = "لا توجد إنجازات"
+
+    text = f"""
+👤 <b>PLAYER PROFILE</b>
+
+━━━━━━━━━━━━━━━━━━
+
+🏷️ <b>الاسم</b>
+{escape(name)}
+
+♟️ <b>Chess.com</b>
+
+<code>{chess_username}</code>
+
+━━━━━━━━━━━━━━━━━━
+
+📊 <b>RATING</b>
+
+⚡ Rapid : <b>{rating['rapid']}</b>
+
+🔥 Blitz : <b>{rating['blitz']}</b>
+
+💣 Bullet : <b>{rating['bullet']}</b>
+
+━━━━━━━━━━━━━━━━━━
+
+🏆 <b>CHECK MATE POINTS</b>
+
+⭐ <b>{score}</b>
+
+🎖️ {rank}
+
+━━━━━━━━━━━━━━━━━━
+
+👑 <b>ACHIEVEMENTS</b>
+
+{badge_text}
+
+━━━━━━━━━━━━━━━━━━
+
+⭐ <b>ACCOUNT LEVEL</b>
+
+{level}
 """
 
     await query.edit_message_text(
