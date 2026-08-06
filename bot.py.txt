@@ -7,6 +7,8 @@ import requests
 import json
 import os
 from datetime import datetime
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import CallbackQueryHandler
 
 TOKEN = "8953879123:AAFtuZZoHSrHlf7b7037fJYAyWsPYjeDyI4"
 OWNER_ID = 6785722062
@@ -244,8 +246,97 @@ def get_name(user):
         return f"@{user.username}"
     return user.first_name
 
+def start_keyboard():
+
+    keyboard = [
+
+        [
+            InlineKeyboardButton("🏆 Top CheckMate", callback_data="top_points"),
+            InlineKeyboardButton("⚡ Top Rapid", callback_data="top_rapid")
+        ],
+
+        [
+            InlineKeyboardButton("🔥 Top Blitz", callback_data="top_blitz"),
+            InlineKeyboardButton("👑 The Champions", callback_data="champions")
+        ],
+
+        [
+            InlineKeyboardButton("👤 My Profile", callback_data="profile"),
+            InlineKeyboardButton("🔗 Link Chess.com", callback_data="link")
+        ]
+
+    ]
+
+    return InlineKeyboardMarkup(keyboard)
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+
+    if data == "back":
+
+        await query.edit_message_text(
+            """
+♟️ <b>CHECK MATE SYSTEM</b>
+
+━━━━━━━━━━━━━━━━━━
+
+👋 مرحبًا بك!
+
+اختر أحد الأقسام من الأزرار بالأسفل 👇
+
+━━━━━━━━━━━━━━━━━━
+""",
+            parse_mode="HTML",
+            reply_markup=start_keyboard()
+        )
+
+    elif data == "top_points":
+
+        await top_callback(query, context)
+
+    elif data == "top_rapid":
+
+        await toprapid_callback(query, context)
+
+    elif data == "top_blitz":
+
+        await topblitz_callback(query, context)
+
+    elif data == "champions":
+
+        await champions_callback(query, context)
+
+    elif data == "profile":
+
+        await profile_callback(query, context)
+
+    elif data == "link":
+
+        await link_callback(query, context)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("اهلا بك في جروب Check Mate 👑♟️")
+
+    text = """
+♟️ <b>CHECK MATE SYSTEM</b>
+
+━━━━━━━━━━━━━━━━━━
+
+👋 مرحبًا بك!
+
+اختر أحد الأقسام من الأزرار بالأسفل 👇
+
+━━━━━━━━━━━━━━━━━━
+"""
+
+    await update.message.reply_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=start_keyboard()
+    )
 
 async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0:
@@ -1017,6 +1108,57 @@ f"""🗑️ تم حذف الإنجاز
 ✅ تمت العملية بنجاح."""
     )
 
+async def top_callback(query, context):
+
+    if not points:
+
+        await query.edit_message_text(
+            "لا يوجد بيانات بعد.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+            ])
+        )
+        return
+
+    sorted_users = sorted(points.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    places = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+    text = "🏆 <b>TOP CHECK MATE</b>\n"
+    text += "━━━━━━━━━━━━━━━━━━\n\n"
+
+    leader_name = ""
+    leader_score = 0
+
+    for i, (uid, score) in enumerate(sorted_users):
+
+        try:
+            member = await context.bot.get_chat_member(query.message.chat.id, int(uid))
+            display_name = get_name(member.user)
+        except:
+            chess_name = users.get(uid)
+            display_name = chess_name if chess_name else uid
+
+        if i == 0:
+            leader_name = display_name
+            leader_score = score
+
+        text += (
+            f"{places[i]} <b>{escape(display_name)}</b>\n"
+            f"🏆 <code>{score}</code> نقطة\n\n"
+        )
+
+    text += "━━━━━━━━━━━━━━━━━━\n"
+    text += f"👑 <b>Leader :</b> {escape(leader_name)}"
+
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        ])
+    )
+
 app = Application.builder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
@@ -1034,6 +1176,7 @@ app.add_handler(CommandHandler("result", result))
 app.add_handler(CommandHandler("grant", grant))
 app.add_handler(CommandHandler("profile", profile))
 app.add_handler(CommandHandler("removebadge", removebadge))
+app.add_handler(CallbackQueryHandler(button_handler))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.SUPERGROUP | filters.ChatType.GROUP), handle_points))
 
