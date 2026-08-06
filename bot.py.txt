@@ -502,7 +502,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text, parse_mode="HTML")
 
-async def topeloR_callback(query, context):
+async def toprapid_callback(query, context):
     players = []
 
     for uid, username in users.items():
@@ -557,10 +557,8 @@ async def topeloR_callback(query, context):
         ])
     )
 
-    await update.message.reply_text(text, parse_mode="HTML")
 
-
-async def topeloB_callback(query, context):
+async def topblitz_callback(query, context):
     players = []
 
     for uid, username in users.items():
@@ -615,7 +613,6 @@ async def topeloB_callback(query, context):
         ])
     )
 
-    await update.message.reply_text(text, parse_mode="HTML")
 async def unlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not update.message.reply_to_message:
