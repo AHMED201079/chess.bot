@@ -1344,6 +1344,112 @@ async def profile_callback(query, context):
         ])
     )
 
+async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text(
+            "❌ هذا الأمر متاح للمالك فقط."
+        )
+        return
+
+    if update.effective_chat.type not in ["group", "supergroup"]:
+        await update.message.reply_text(
+            "❌ استخدم الأمر داخل جروب CHECK MATE."
+        )
+        return
+
+    chat_id = update.effective_chat.id
+
+    await update.message.reply_text(
+        "🧹 جاري تنظيف البيانات..."
+    )
+
+    removed_users = []
+
+    all_ids = set(users.keys()) | set(points.keys()) | set(badges.keys())
+
+    for uid in list(all_ids):
+
+        try:
+            member = await context.bot.get_chat_member(
+                chat_id,
+                int(uid)
+            )
+
+            if member.status in ["creator", "administrator", "member"]:
+                continue
+
+            if member.status in ["left", "kicked"]:
+                removed_users.append(uid)
+
+        except Exception as e:
+            print(f"Cleanup check failed for {uid}: {e}")
+            continue
+
+    if not removed_users:
+        await update.message.reply_text(
+            "✅ تم التنظيف.\n\n"
+            "🟢 لا يوجد لاعبين خارج الجروب."
+        )
+        return
+
+    for uid in removed_users:
+
+        users.pop(uid, None)
+        points.pop(uid, None)
+        badges.pop(uid, None)
+
+        for date in list(daily_wins.keys()):
+            daily_wins[date].pop(uid, None)
+
+            if not daily_wins[date]:
+                del daily_wins[date]
+
+        if uid in point_admins:
+            point_admins.remove(uid)
+
+    for match_id in list(matches.keys()):
+
+        match = matches[match_id]
+
+        if (
+            match.get("player1") in removed_users
+            or match.get("player2") in removed_users
+        ):
+            del matches[match_id]
+
+    save_users()
+    save_points()
+    save_badges()
+    save_daily_wins()
+    save_point_admins()
+    save_matches()
+
+    await update.message.reply_text(
+        f"""
+🧹 <b>CHECK MATE CLEANUP</b>
+
+━━━━━━━━━━━━━━━━━━
+
+✅ تم تنظيف البيانات.
+
+👥 الحسابات المحذوفة:
+<b>{len(removed_users)}</b>
+
+🗑️ تم حذف:
+• ربط Chess.com
+• النقاط
+• الأوسمة
+• الانتصارات اليومية
+• صلاحيات مسؤولي النقاط
+• المباريات الخاصة بهم
+
+━━━━━━━━━━━━━━━━━━
+""",
+        parse_mode="HTML"
+    )
+
+
 app = Application.builder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
