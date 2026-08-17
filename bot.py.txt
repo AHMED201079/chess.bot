@@ -637,26 +637,32 @@ async def unlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def promotepoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not await is_admin(update, update.effective_user.id):
-        await update.message.reply_text("❌ للمشرفين فقط.")
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text(
+            "❌ هذا الأمر متاح لمالك البوت فقط."
+        )
         return
 
     if not update.message.reply_to_message:
-        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة العضو.")
+        await update.message.reply_text(
+            "❌ استخدم الأمر بالرد على رسالة العضو."
+        )
         return
 
     user = update.message.reply_to_message.from_user
     uid = str(user.id)
 
     if uid in point_admins:
-        await update.message.reply_text("❌ هذا العضو مسؤول نقاط بالفعل.")
+        await update.message.reply_text(
+            "❌ هذا العضو مسؤول نقاط بالفعل."
+        )
         return
 
     point_admins.append(uid)
     save_point_admins()
 
     await update.message.reply_text(
-f"""👑 تم تعيين {get_name(user)} مسؤولًا عن إدارة النقاط بنجاح.
+        f"""👑 تم تعيين {get_name(user)} مسؤولًا عن إدارة النقاط بنجاح.
 
 ✅ أصبح بإمكانه:
 ➕ إضافة النقاط.
@@ -665,22 +671,27 @@ f"""👑 تم تعيين {get_name(user)} مسؤولًا عن إدارة الن�
 🎖️ الصلاحية أصبحت فعالة الآن."""
     )
 
-
 async def removepoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not await is_admin(update, update.effective_user.id):
-        await update.message.reply_text("❌ للمشرفين فقط.")
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text(
+            "❌ هذا الأمر متاح لمالك البوت فقط."
+        )
         return
 
     if not update.message.reply_to_message:
-        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة العضو.")
+        await update.message.reply_text(
+            "❌ استخدم الأمر بالرد على رسالة العضو."
+        )
         return
 
     user = update.message.reply_to_message.from_user
     uid = str(user.id)
 
     if uid not in point_admins:
-        await update.message.reply_text("❌ هذا العضو ليس مسؤول نقاط.")
+        await update.message.reply_text(
+            "❌ هذا العضو ليس مسؤول نقاط."
+        )
         return
 
     point_admins.remove(uid)
@@ -693,7 +704,6 @@ async def removepoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🔒 تم إلغاء الصلاحية بنجاح."""
     )
-
 
 async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # التأكد من أن الأمر أُرسل بالرد على رسالة
