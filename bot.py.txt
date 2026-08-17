@@ -638,6 +638,16 @@ async def unlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def promotepoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    print(">>> PROMOTEPOINTS CALLED <<<")
+    print("USER ID:", update.effective_user.id)
+    print("OWNER ID:", OWNER_ID)
+
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text(
+            "❌ هذا الأمر متاح لمالك البوت فقط."
+        )
+        return
+
     if update.effective_user.id != OWNER_ID:
         await update.message.reply_text(
             "❌ هذا الأمر متاح لمالك البوت فقط."
