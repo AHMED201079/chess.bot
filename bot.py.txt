@@ -339,15 +339,109 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     if len(context.args) == 0:
-        await update.message.reply_text("اكتب: /sign username")
+        await update.message.reply_text(
+            "❌ اكتب اسم حساب Chess.com.\n\n"
+            "مثال:\n"
+            "/sign Hikaru"
+        )
         return
 
+    username = context.args[0].strip()
+
+    url = f"https://api.chess.com/pub/player/{username}"
+
+    headers = {
+        "User-Agent": "CHECK MATE SYSTEM/1.0"
+    }
+
+    try:
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=10
+        )
+    except requests.RequestException:
+        await update.message.reply_text(
+            "⚠️ تعذر الاتصال بموقع Chess.com حاليًا.\n"
+            "حاول مرة أخرى بعد قليل."
+        )
+        return
+
+    # الحساب غير موجود
+    if response.status_code == 404:
+        await update.message.reply_text(
+            f"❌ لم يتم العثور على اللاعب\n\n"
+            f"♟️ Chess.com: <code>{escape(username)}</code>\n\n"
+            f"تأكد من كتابة اسم المستخدم بشكل صحيح."
+            ,
+            parse_mode="HTML"
+        )
+        return
+
+    # الحساب مغلق / محظور
+    if response.status_code in [403, 410]:
+        await update.message.reply_text(
+            f"🚫 لا يمكن ربط هذا الحساب\n\n"
+            f"♟️ Chess.com: <code>{escape(username)}</code>\n\n"
+            f"⚠️ الحساب غير متاح على Chess.com."
+            ,
+            parse_mode="HTML"
+        )
+        return
+
+    # أي استجابة غير متوقعة
+    if response.status_code != 200:
+        await update.message.reply_text(
+            "⚠️ تعذر التحقق من الحساب على Chess.com.\n"
+            "حاول مرة أخرى بعد قليل."
+        )
+        return
+
+    try:
+        player_data = response.json()
+    except ValueError:
+        await update.message.reply_text(
+            "⚠️ حدث خطأ أثناء قراءة بيانات Chess.com."
+        )
+        return
+
+    # Chess.com قد يعيد حالة الحساب في بيانات اللاعب
+    player_status = str(
+        player_data.get("status", "")
+    ).lower()
+
+    # حالات الحساب غير المتاح
+    if player_status in [
+        "closed",
+        "closed:fair_play",
+        "closed:fair_play_violation",
+        "closed:tos_violation"
+    ]:
+        await update.message.reply_text(
+            f"🚫 <b>تم رفض ربط الحساب</b>\n\n"
+            f"♟️ Chess.com: <code>{escape(username)}</code>\n\n"
+            f"⚠️ تم إغلاق هذا الحساب من Chess.com "
+            f"بسبب مخالفة سياسة اللعب النظيف أو شروط الموقع."
+            ,
+            parse_mode="HTML"
+        )
+        return
+
+    # الحساب صحيح → يتم الحفظ
     user_id = str(update.effective_user.id)
-    users[user_id] = context.args[0]
+
+    users[user_id] = username
     save_users()
 
-    await update.message.reply_text(f"✅ تم ربط حسابك في chess.com: {context.args[0]}")
+    await update.message.reply_text(
+        f"✅ <b>تم ربط حساب Chess.com بنجاح</b>\n\n"
+        f"👤 اللاعب: {escape(get_name(update.effective_user))}\n"
+        f"♟️ الحساب: <code>{escape(username)}</code>\n\n"
+        f"🏆 يمكنك الآن استخدام /elo لعرض تصنيفاتك.",
+        parse_mode="HTML"
+    )
 
 async def elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
