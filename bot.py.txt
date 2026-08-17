@@ -400,7 +400,8 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     admin_id = update.effective_user.id
 
-    if not await is_admin(update, admin_id) and str(admin_id) not in point_admins:
+    # المالك أو مسؤول النقاط فقط
+    if admin_id != OWNER_ID and str(admin_id) not in point_admins:
         return
 
     user = msg.reply_to_message.from_user
@@ -415,7 +416,7 @@ async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
 👤 الاسم: {get_name(user)}
 📊 النقاط: {points[uid]}
 🎖️ الرتبة: {get_rank(points[uid])}"""
-)
+    )
 
 async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
