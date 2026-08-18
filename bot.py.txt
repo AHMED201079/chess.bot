@@ -1,143 +1,302 @@
 print(">>> FILE IS RUNNING <<<")
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    ContextTypes,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-)
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from html import escape
 import requests
 import json
 import os
 from datetime import datetime
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import CallbackQueryHandler
 
 TOKEN = "8953879123:AAFtuZZoHSrHlf7b7037fJYAyWsPYjeDyI4"
 OWNER_ID = 6785722062
 
 DATA_FILE = "users.json"
 POINTS_FILE = "points.json"
+
 MATCHES_FILE = "matches.json"
 DAILY_WINS_FILE = "dailywins.json"
 POINT_ADMINS_FILE = "point_admins.json"
 BADGES_FILE = "badges.json"
 
-# --- تحميل البيانات مع ضبط المسافات البادئة بشكل صحيح ---
-if os.path.exists(DATA_FILE):
-    with open(DATA_FILE, "r") as f:
-        users = json.load(f)
-else:
-    users = {}
 
-if os.path.exists(POINTS_FILE):
-    with open(POINTS_FILE, "r") as f:
-        points = json.load(f)
-else:
-    points = {}
+# =========================
+# GROUP ISOLATION SYSTEM
+# =========================
+from contextvars import ContextVar
 
-if os.path.exists(MATCHES_FILE):
-    with open(MATCHES_FILE, "r") as f:
-        matches = json.load(f)
-else:
-    matches = {}
+_ACTIVE_CHAT_ID = ContextVar("ACTIVE_CHAT_ID", default=None)
+_GROUP_KEY = "__groups__"
 
-if os.path.exists(DAILY_WINS_FILE):
-    with open(DAILY_WINS_FILE, "r") as f:
-        daily_wins = json.load(f)
-else:
-    daily_wins = {}
+def set_active_chat(chat_id):
+    if chat_id is None:
+        raise ValueError("Chat ID is required for group-isolated data.")
+    _ACTIVE_CHAT_ID.set(str(chat_id))
 
-if os.path.exists(POINT_ADMINS_FILE):
-    with open(POINT_ADMINS_FILE, "r") as f:
-        point_admins = json.load(f)
-else:
-    point_admins = []
+def get_active_chat_id():
+    chat_id = _ACTIVE_CHAT_ID.get()
+    if chat_id is None:
+        raise RuntimeError("No active chat context.")
+    return str(chat_id)
 
-if os.path.exists(BADGES_FILE):
-    with open(BADGES_FILE, "r", encoding="utf-8") as f:
-        badges = json.load(f)
-else:
-    badges = {}
+class GroupDict:
+    """Dictionary facade: every group gets its own independent namespace."""
+    def __init__(self, filename, default_factory=dict):
+        self.filename = filename
+        self.default_factory = default_factory
+        self.data = self._load()
+
+    def _load(self):
+        if not os.path.exists(self.filename):
+            return {_GROUP_KEY: {}}
+        try:
+            with open(self.filename, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+        except Exception:
+            return {_GROUP_KEY: {}}
+
+        # Old version was a flat dictionary. Keep it isolated as legacy data
+        # instead of accidentally sharing it with every group.
+        if not isinstance(raw, dict) or _GROUP_KEY not in raw or not isinstance(raw.get(_GROUP_KEY), dict):
+            return {_GROUP_KEY: {}, "__legacy__": raw}
+        return raw
+
+    def _group(self):
+        gid = get_active_chat_id()
+        groups = self.data.setdefault(_GROUP_KEY, {})
+        if gid not in groups:
+            groups[gid] = self.default_factory()
+        return groups[gid]
+
+    def save(self):
+        with open(self.filename, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, ensure_ascii=False, indent=4)
+
+    def get(self, key, default=None):
+        return self._group().get(key, default)
+
+    def items(self):
+        return self._group().items()
+
+    def values(self):
+        return self._group().values()
+
+    def keys(self):
+        return self._group().keys()
+
+    def __contains__(self, key):
+        return key in self._group()
+
+    def __getitem__(self, key):
+        return self._group()[key]
+
+    def __setitem__(self, key, value):
+        self._group()[key] = value
+
+    def __delitem__(self, key):
+        del self._group()[key]
+
+    def __bool__(self):
+        return bool(self._group())
+
+    def __len__(self):
+        return len(self._group())
+
+class GroupList(GroupDict):
+    def __init__(self, filename):
+        super().__init__(filename, list)
+
+    def _group(self):
+        gid = get_active_chat_id()
+        groups = self.data.setdefault(_GROUP_KEY, {})
+        if gid not in groups:
+            groups[gid] = []
+        return groups[gid]
+
+    def append(self, value):
+        self._group().append(value)
+
+    def remove(self, value):
+        self._group().remove(value)
+
+    def __iter__(self):
+        return iter(self._group())
+
+# Each JSON file is now namespaced by Telegram group/chat ID.
+users = GroupDict(DATA_FILE, dict)
+points = GroupDict(POINTS_FILE, dict)
+matches = GroupDict(MATCHES_FILE, dict)
+daily_wins = GroupDict(DAILY_WINS_FILE, dict)
+point_admins = GroupList(POINT_ADMINS_FILE)
+badges = GroupDict(BADGES_FILE, dict)
 
 
-# --- دوال الحفظ ---
 def save_users():
-    with open(DATA_FILE, "w") as f:
-        json.dump(users, f)
+    users.save()
 
 def save_point_admins():
-    with open(POINT_ADMINS_FILE, "w") as f:
-        json.dump(point_admins, f)
+    point_admins.save()
 
 def save_badges():
-    with open(BADGES_FILE, "w", encoding="utf-8") as f:
-        json.dump(badges, f, ensure_ascii=False, indent=4)
+    badges.save()
 
 def save_points():
-    with open(POINTS_FILE, "w") as f:
-        json.dump(points, f)
+    points.save()
 
 def save_matches():
-    with open(MATCHES_FILE, "w") as f:
-        json.dump(matches, f)
+    matches.save()
 
 def save_daily_wins():
-    with open(DAILY_WINS_FILE, "w") as f:
-        json.dump(daily_wins, f)
+    daily_wins.save()
 
 
-# --- دوال Chess.com API ---
+def migrate_legacy_here():
+    """One-time owner command: import the old flat data into THIS group only."""
+    gid = get_active_chat_id()
+    changed = False
+
+    for store in (users, points, matches, daily_wins, badges):
+        legacy = store.data.get("__legacy__")
+        if legacy and isinstance(legacy, dict):
+            store.data.setdefault(_GROUP_KEY, {})[gid] = legacy
+            del store.data["__legacy__"]
+            store.save()
+            changed = True
+
+    legacy = point_admins.data.get("__legacy__")
+    if isinstance(legacy, list):
+        point_admins.data.setdefault(_GROUP_KEY, {})[gid] = legacy
+        del point_admins.data["__legacy__"]
+        point_admins.save()
+        changed = True
+
+    return changed
+
+
 def get_elo(username):
     url = f"https://api.chess.com/pub/player/{username}/stats"
-    headers = {"User-Agent": "TelegramChessBot/1.0 (contact: admin@example.com)"}
+    headers = {
+        "User-Agent": "TelegramChessBot/1.0 (contact: admin@example.com)"
+    }
 
     try:
         r = requests.get(url, headers=headers, timeout=10)
         if r.status_code != 200:
             return {"rapid": "N/A", "blitz": "N/A", "bullet": "N/A"}
         data = r.json()
-    except Exception:
+    except:
         return {"rapid": "Error", "blitz": "Error", "bullet": "Error"}
 
     def safe(key):
         try:
             return data.get(key, {}).get("last", {}).get("rating", "N/A")
-        except Exception:
+        except:
             return "N/A"
 
     return {
         "rapid": safe("chess_rapid"),
         "blitz": safe("chess_blitz"),
-        "bullet": safe("chess_bullet"),
+        "bullet": safe("chess_bullet")
     }
 
 def get_games(username):
     url = f"https://api.chess.com/pub/player/{username}/games/archives"
+
     try:
         r = requests.get(url, timeout=10)
+
         if r.status_code != 200:
             return []
+
         archives = r.json().get("archives", [])
+
         all_games = []
+
         for archive in archives:
             try:
                 game_request = requests.get(archive, timeout=10)
+
                 if game_request.status_code == 200:
                     games = game_request.json().get("games", [])
                     all_games.extend(games)
-            except Exception:
+
+            except:
                 continue
+
         return all_games
-    except Exception:
+
+    except:
         return []
 
+def get_chess_stats(username):
+
+    games = get_games(username)
+
+    wins = 0
+    losses = 0
+    draws = 0
+    total = 0
+
+    for game in games:
+
+        try:
+            white = game["white"]["username"].lower()
+            black = game["black"]["username"].lower()
+
+            if username.lower() == white:
+                result = game["white"]["result"]
+
+            elif username.lower() == black:
+                result = game["black"]["result"]
+
+            else:
+                continue
+
+            total += 1
+
+            if result == "win":
+                wins += 1
+
+            elif result in [
+                "checkmated",
+                "resigned",
+                "timeout",
+                "lose"
+            ]:
+                losses += 1
+
+            elif result == "draw":
+                draws += 1
+
+        except:
+            continue
+
+
+    if total:
+        rate = round((wins / total) * 100)
+    else:
+        rate = 0
+
+
+    return {
+        "games": total,
+        "wins": wins,
+        "draws": draws,
+        "losses": losses,
+        "rate": rate
+    }
+
+
 def get_match_result(player1, player2, challenge_time):
+
     games = get_games(player1)
+
     for game in reversed(games):
+
         end_time = game.get("end_time", 0)
+
         if end_time < challenge_time:
             continue
 
@@ -148,17 +307,23 @@ def get_match_result(player1, player2, challenge_time):
             continue
 
         if game["white"]["result"] == "win":
-            return {"winner": white, "game_url": game.get("url", "")}
+            return {
+                "winner": white,
+                "game_url": game.get("url", "")
+            }
 
         if game["black"]["result"] == "win":
-            return {"winner": black, "game_url": game.get("url", "")}
+            return {
+                "winner": black,
+                "game_url": game.get("url", "")
+            }
 
-        return {"winner": "draw", "game_url": game.get("url", "")}
+        return {
+            "winner": "draw",
+            "game_url": game.get("url", "")
+        }
 
     return None
-
-
-# --- دوال مساعدة ---
 def get_rank(score):
     if score < 50:
         return "♙ مبتدئ"
@@ -171,46 +336,44 @@ def get_rank(score):
     else:
         return "👑 أسطورة"
 
-def get_level(score):
-    if score < 50:
-        return "★★☆☆☆"
-    elif score < 150:
-        return "★★★☆☆"
-    elif score < 300:
-        return "★★★★☆"
-    else:
-        return "★★★★★"
-
 def get_name(user):
     if user.username:
         return f"@{user.username}"
     return user.first_name
 
 def start_keyboard():
+
     keyboard = [
+
         [
             InlineKeyboardButton("🏆 Top CheckMate", callback_data="top_points"),
-            InlineKeyboardButton("⚡ Top Rapid", callback_data="top_rapid"),
+            InlineKeyboardButton("⚡ Top Rapid", callback_data="top_rapid")
         ],
+
         [
             InlineKeyboardButton("🔥 Top Blitz", callback_data="top_blitz"),
-            InlineKeyboardButton("👑 The Champions", callback_data="champions"),
+            InlineKeyboardButton("👑 The Champions", callback_data="champions")
         ],
+
         [
             InlineKeyboardButton("👤 My Profile", callback_data="profile"),
-            InlineKeyboardButton("🔗 Link Chess.com", callback_data="link"),
-        ],
+            InlineKeyboardButton("🔗 Link Chess.com", callback_data="link")
+        ]
+
     ]
+
     return InlineKeyboardMarkup(keyboard)
 
-
-# --- معالج الأزرار المباشرة ---
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
+
     query = update.callback_query
     await query.answer()
+
     data = query.data
 
     if data == "back":
+
         await query.edit_message_text(
             """
 ♟️ <b>CHECK MATE SYSTEM</b>
@@ -224,24 +387,36 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━
 """,
             parse_mode="HTML",
-            reply_markup=start_keyboard(),
+            reply_markup=start_keyboard()
         )
+
     elif data == "top_points":
+
         await top_callback(query, context)
+
     elif data == "top_rapid":
+
         await topeloR_callback(query, context)
+
     elif data == "top_blitz":
+
         await topeloB_callback(query, context)
+
     elif data == "champions":
+
         await champions_callback(query, context)
+
     elif data == "profile":
+
         await profile_callback(query, context)
+
     elif data == "link":
+
         await link_callback(query, context)
 
-
-# --- الأوامر الأساسية ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
+
     text = """
 ♟️ <b>CHECK MATE SYSTEM</b>
 
@@ -253,42 +428,29 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ━━━━━━━━━━━━━━━━━━
 """
+
     await update.message.reply_text(
-        text, parse_mode="HTML", reply_markup=start_keyboard()
+        text,
+        parse_mode="HTML",
+        reply_markup=start_keyboard()
     )
 
 async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
     if len(context.args) == 0:
-        await update.message.reply_text("❌ اكتب اسم حساب Chess.com.\n\nمثال:\n/sign Hikaru")
-        return
-
-    username = context.args[0].strip()
-    url = f"https://api.chess.com/pub/player/{username}"
-    headers = {"User-Agent": "CHECK MATE SYSTEM/1.0"}
-
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-    except requests.RequestException:
-        await update.message.reply_text("⚠️ تعذر الاتصال بموقع Chess.com حاليًا.")
-        return
-
-    if response.status_code == 404:
-        await update.message.reply_text(f"❌ لم يتم العثور على اللاعب: <code>{escape(username)}</code>", parse_mode="HTML")
+        await update.message.reply_text("اكتب: /sign username")
         return
 
     user_id = str(update.effective_user.id)
-    users[user_id] = username
+    users[user_id] = context.args[0]
     save_users()
 
-    await update.message.reply_text(
-        f"✅ <b>تم ربط حساب Chess.com بنجاح</b>\n\n"
-        f"👤 اللاعب: {escape(get_name(update.effective_user))}\n"
-        f"♟️ الحساب: <code>{escape(username)}</code>",
-        parse_mode="HTML",
-    )
+    await update.message.reply_text(f"✅ تم ربط حسابك في chess.com: {context.args[0]}")
 
 async def elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
     user_id = str(update.effective_user.id)
+
     if update.message.reply_to_message:
         user_id = str(update.message.reply_to_message.from_user.id)
 
@@ -307,105 +469,158 @@ async def elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚡ Rapid: {rating['rapid']}
 🔥 Blitz: {rating['blitz']}
 💣 Bullet: {rating['bullet']}""",
-        parse_mode="HTML",
+        parse_mode="HTML"
     )
+async def is_admin(update: Update, user_id: int):
+    try:
+        member = await update.effective_chat.get_member(user_id)
+        return member.status in ["administrator", "creator"]
+    except:
+        return False
+
+async def handle_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
+    msg = update.message
+
+    if not msg or not msg.text:
+        return
+
+    text = msg.text.strip()
+
+    if text not in ["+10", "-10"] and not text.startswith("+") and not text.startswith("-"):
+        return
+
+    try:
+        value = int(text)
+    except:
+        return
+
+    if not msg.reply_to_message:
+        return
+
+    admin_id = update.effective_user.id
+
+    if not await is_admin(update, admin_id) and str(admin_id) not in point_admins:
+        return
+
+    user = msg.reply_to_message.from_user
+    uid = str(user.id)
+
+    points[uid] = points.get(uid, 20) + value
+    save_points()
+
+    await msg.reply_text(
+    f"""🏆 تم تعديل النقاط
+
+👤 الاسم: {get_name(user)}
+📊 النقاط: {points[uid]}
+🎖️ الرتبة: {get_rank(points[uid])}"""
+)
 
 async def mypoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
+
+    OWNER_ID = 6785722062  # حط هنا Telegram ID بتاعك
+
     user = update.effective_user
+
+    # إذا كان المالك
     if user.id == OWNER_ID:
-        await update.message.reply_text("👑 AHMED ESSAM\n\n🏆 المالك الرسمي لـ CHECK MATE")
+        await update.message.reply_text(
+            """👑 AHMED ESSAM
+
+━━━━━━━━━━━━━━━━━━
+
+🏆 المالك الرسمي لـ CHECK MATE
+
+📜 غير مشارك في نظام النقاط أو الترتيب.
+
+⚙️ المسؤول عن إدارة البطولات وتطوير النظام.
+
+━━━━━━━━━━━━━━━━━━
+
+♟️ Founder & Owner"""
+        )
         return
 
     msg = update.message
-    target_user = msg.reply_to_message.from_user if msg.reply_to_message else user
-    user_id = str(target_user.id)
+
+    if msg.reply_to_message:
+        user = msg.reply_to_message.from_user
+    else:
+        user = msg.from_user
+
+    user_id = str(user.id)
 
     score = points.get(user_id, 20)
     rank = get_rank(score)
-    name = get_name(target_user)
+    name = get_name(user)
 
-    await msg.reply_text(f"📊 بيانات اللاعب\n\n👤 الاسم: {name}\n🏆 النقاط: {score}\n🎖️ الرتبة: {rank}")
+    await msg.reply_text(
+        f"""📊 بيانات اللاعب
+
+👤 الاسم: {name}
+🏆 النقاط: {score}
+🎖️ الرتبة: {rank}"""
+    )
 
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
     if not points:
         await update.message.reply_text("لا يوجد بيانات بعد")
         return
 
     sorted_users = sorted(points.items(), key=lambda x: x[1], reverse=True)[:10]
-    places = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-    text = "🏆 <b>TOP 10 CHECK MATE</b>\n━━━━━━━━━━━━━━\n\n"
 
-    leader_name = "لا يوجد"
-    leader_score = 0
+    places = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+    text = "🏆 <b>TOP 10 CHECK MATE</b>\n"
+    text += "━━━━━━━━━━━━━━\n\n"
+
+    leader_name = None
+    leader_score = None
 
     for i, (uid, score) in enumerate(sorted_users):
         try:
             member = await context.bot.get_chat_member(update.effective_chat.id, int(uid))
             display_name = get_name(member.user)
-        except Exception:
+        except:
             chess_name = users.get(uid)
             display_name = f"Chess.com: {chess_name}" if chess_name else f"ID: {uid}"
 
         rank = get_rank(score)
+
         if i == 0:
             leader_name = display_name
             leader_score = score
 
-        text += f"{places[i]} <b>{escape(display_name)}</b>\n    🏆 <code>{score}</code> نقطة | {escape(rank)}\n\n"
+        text += (
+            f"{places[i]} <b>{escape(display_name)}</b>\n"
+            f"    🏆 <code>{score}</code> نقطة | {escape(rank)}\n\n"
+        )
 
     text += "━━━━━━━━━━━━━━\n"
     text += f"👑 المتصدر: <b>{escape(leader_name)}</b> بـ <code>{leader_score}</code> نقطة"
+
     await update.message.reply_text(text, parse_mode="HTML")
 
-
-# --- الاستدعاءات عبر الأزرار (Callbacks) ---
-async def top_callback(query, context):
-    if not points:
-        await query.edit_message_text(
-            "لا يوجد بيانات بعد.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]]),
-        )
-        return
-
-    sorted_users = sorted(points.items(), key=lambda x: x[1], reverse=True)[:10]
-    places = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-    text = "🏆 <b>TOP CHECK MATE</b>\n━━━━━━━━━━━━━━━━━━\n\n"
-
-    leader_name = ""
-    for i, (uid, score) in enumerate(sorted_users):
-        try:
-            member = await context.bot.get_chat_member(query.message.chat.id, int(uid))
-            display_name = get_name(member.user)
-        except Exception:
-            chess_name = users.get(uid)
-            display_name = chess_name if chess_name else uid
-
-        if i == 0:
-            leader_name = display_name
-
-        text += f"{places[i]} <b>{escape(display_name)}</b>\n🏆 <code>{score}</code> نقطة\n\n"
-
-    text += "━━━━━━━━━━━━━━━━━━\n"
-    text += f"👑 <b>Leader :</b> {escape(leader_name)}"
-    await query.edit_message_text(
-        text,
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]]),
-    )
-
 async def topeloR_callback(query, context):
+    set_active_chat(query.message.chat.id)
+    set_active_chat(query.message.chat.id)
     players = []
+
     for uid, username in users.items():
         rating = get_elo(username)
+
         try:
             rapid = int(rating["rapid"])
-        except Exception:
+        except:
             continue
 
         try:
             member = await context.bot.get_chat_member(query.message.chat.id, int(uid))
             tg_name = get_name(member.user)
-        except Exception:
+        except:
             tg_name = username
 
         players.append((rapid, tg_name, username))
@@ -413,39 +628,58 @@ async def topeloR_callback(query, context):
     if not players:
         await query.edit_message_text(
             "❌ لا يوجد لاعبين مربوطين.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]]),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+            ])
         )
         return
 
     players.sort(reverse=True)
+
     medals = ["🥇", "🥈", "🥉"]
-    text = "🏆 <b>TOP RAPID PLAYERS</b>\n━━━━━━━━━━━━━━━━━━\n\n"
+
+    text = "🏆 <b>TOP RAPID PLAYERS</b>\n"
+    text += "━━━━━━━━━━━━━━━━━━\n\n"
 
     for i, (elo, tg, chess) in enumerate(players[:10]):
         place = medals[i] if i < 3 else f"{i+1}️⃣"
-        text += f"{place} <b>{escape(tg)}</b>\n♟️ <code>{chess}</code>\n⚡ Rapid : <b>{elo}</b>\n\n"
+
+        text += (
+            f"{place} <b>{escape(tg)}</b>\n"
+            f"♟️ <code>{chess}</code>\n"
+            f"⚡ Rapid : <b>{elo}</b>\n\n"
+        )
 
     text += "━━━━━━━━━━━━━━━━━━\n"
     text += f"👑 <b>ملك الرابيد:</b> {escape(players[0][1])} • <b>{players[0][0]}</b>"
+
     await query.edit_message_text(
         text,
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]]),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        ])
     )
 
+
+
 async def topeloB_callback(query, context):
+    set_active_chat(query.message.chat.id)
+    set_active_chat(query.message.chat.id)
     players = []
+
     for uid, username in users.items():
         rating = get_elo(username)
+
         try:
             blitz = int(rating["blitz"])
-        except Exception:
+        except:
             continue
 
         try:
             member = await context.bot.get_chat_member(query.message.chat.id, int(uid))
             tg_name = get_name(member.user)
-        except Exception:
+        except:
             tg_name = username
 
         players.append((blitz, tg_name, username))
@@ -453,123 +687,830 @@ async def topeloB_callback(query, context):
     if not players:
         await query.edit_message_text(
             "❌ لا يوجد لاعبين مربوطين.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]]),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+            ])
         )
         return
 
     players.sort(reverse=True)
+
     medals = ["🥇", "🥈", "🥉"]
-    text = "🔥 <b>TOP BLITZ PLAYERS</b>\n━━━━━━━━━━━━━━━━━━\n\n"
+
+    text = "🔥 <b>TOP BLITZ PLAYERS</b>\n"
+    text += "━━━━━━━━━━━━━━━━━━\n\n"
 
     for i, (elo, tg, chess) in enumerate(players[:10]):
         place = medals[i] if i < 3 else f"{i+1}️⃣"
-        text += f"{place} <b>{escape(tg)}</b>\n♟️ <code>{chess}</code>\n🔥 Blitz : <b>{elo}</b>\n\n"
+
+        text += (
+            f"{place} <b>{escape(tg)}</b>\n"
+            f"♟️ <code>{chess}</code>\n"
+            f"🔥 Blitz : <b>{elo}</b>\n\n"
+        )
 
     text += "━━━━━━━━━━━━━━━━━━\n"
     text += f"👑 <b>ملك البليتز:</b> {escape(players[0][1])} • <b>{players[0][0]}</b>"
+
     await query.edit_message_text(
         text,
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]]),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        ])
     )
 
-async def champions_callback(query, context):
-    text = "👑 <b>THE CHAMPIONS</b>\n━━━━━━━━━━━━━━━━━━\n\n"
-    if not badges:
-        text += "❌ لا يوجد أبطال حتى الآن."
+
+async def unlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
+
+    if not update.message.reply_to_message:
+        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة اللاعب.")
+        return
+
+    if not await is_admin(update, update.effective_user.id):
+        await update.message.reply_text("❌ للمشرفين فقط.")
+        return
+
+    target = str(update.message.reply_to_message.from_user.id)
+
+    if target in users:
+        del users[target]
+        save_users()
+        await update.message.reply_text("✅ تم فك الربط.")
     else:
-        for uid, user_badges in badges.items():
-            try:
-                member = await context.bot.get_chat_member(query.message.chat.id, int(uid))
-                name = get_name(member.user)
-            except Exception:
-                name = users.get(uid, uid)
+        await update.message.reply_text("❌ اللاعب غير مربوط.")
 
-            text += f"👤 <b>{escape(name)}</b>\n"
-            for badge in user_badges:
-                text += f"🏅 {escape(badge)}\n"
-            text += "\n━━━━━━━━━━━━━━━━━━\n\n"
+async def promotepoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
 
-    await query.edit_message_text(
-        text,
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]]),
-    )
+    if not await is_admin(update, update.effective_user.id):
+        await update.message.reply_text("❌ للمشرفين فقط.")
+        return
 
-async def link_callback(query, context):
-    text = """
-🔗 <b>LINK CHESS.COM ACCOUNT</b>
-━━━━━━━━━━━━━━━━━━
-لربط حسابك اكتب الأمر التالي:
-<code>/sign username</code>
+    if not update.message.reply_to_message:
+        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة العضو.")
+        return
 
-مثال:
-<code>/sign Hikaru</code>
-━━━━━━━━━━━━━━━━━━
-"""
-    await query.edit_message_text(
-        text,
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]]),
-    )
-
-async def profile_callback(query, context):
-    user = query.from_user
+    user = update.message.reply_to_message.from_user
     uid = str(user.id)
+
+    if uid in point_admins:
+        await update.message.reply_text("❌ هذا العضو مسؤول نقاط بالفعل.")
+        return
+
+    point_admins.append(uid)
+    save_point_admins()
+
+    await update.message.reply_text(
+f"""👑 تم تعيين {get_name(user)} مسؤولًا عن إدارة النقاط بنجاح.
+
+✅ أصبح بإمكانه:
+➕ إضافة النقاط.
+➖ خصم النقاط.
+
+🎖️ الصلاحية أصبحت فعالة الآن."""
+    )
+
+
+async def removepoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
+
+    if not await is_admin(update, update.effective_user.id):
+        await update.message.reply_text("❌ للمشرفين فقط.")
+        return
+
+    if not update.message.reply_to_message:
+        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة العضو.")
+        return
+
+    user = update.message.reply_to_message.from_user
+    uid = str(user.id)
+
+    if uid not in point_admins:
+        await update.message.reply_text("❌ هذا العضو ليس مسؤول نقاط.")
+        return
+
+    point_admins.remove(uid)
+    save_point_admins()
+
+    await update.message.reply_text(
+        f"""⚠️ تم سحب صلاحية مسؤول إدارة النقاط من {get_name(user)}.
+
+❌ لم يعد بإمكانه إضافة أو خصم نقاط اللاعبين.
+
+🔒 تم إلغاء الصلاحية بنجاح."""
+    )
+
+
+async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
+    # التأكد من أن الأمر أُرسل بالرد على رسالة
+    if not update.message.reply_to_message:
+        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة اللاعب الذي تريد تحديه.")
+        return
+
+    challenger = update.effective_user
+    opponent = update.message.reply_to_message.from_user
+
+    challenger_id = str(challenger.id)
+    opponent_id = str(opponent.id)
+
+    # منع التحدي مع البوتات أو منع تحدي الشخص لنفسه
+    if challenger.is_bot or opponent.is_bot:
+        return
+
+    if challenger_id == opponent_id:
+        await update.message.reply_text("❌ لا يمكنك تحدي نفسك!")
+        return
+
+    # التحقق من أن المتحدي رابط حسابه
+    if challenger_id not in users:
+        await update.message.reply_text("❌ يجب ربط حسابك أولاً باستخدام /sign")
+        return
+
+    # التحقق من أن الطرف الآخر رابط حسابه
+    if opponent_id not in users:
+        await update.message.reply_text("❌ هذا اللاعب غير مربوط بحساب Chess.com.")
+        return
+
+    import time
+
+    match_id = str(int(time.time()))
+
+    matches[match_id] = {
+    "player1": challenger_id,
+    "player2": opponent_id,
+    "username1": users[challenger_id],
+    "username2": users[opponent_id],
+    "message_id": 0,
+    "time": int(time.time()),
+    "status": "active",
+    "results": []
+}
+
+    save_matches()
+
+    challenger_chess = users[challenger_id]
+    opponent_chess = users[opponent_id]
+
+    challenge_url = f"https://www.chess.com/play/online/new?opponent={opponent_chess}"
+
+    text = (
+    f"⚔️ <b>تحدي شطرنج جديد</b>\n"
+    f"━━━━━━━━━━━━━━\n\n"
+    f"👤 <b>{escape(get_name(challenger))}</b>\n"
+    f"♟️ <code>{challenger_chess}</code>\n\n"
+    f"🆚\n\n"
+    f"👤 <b>{escape(get_name(opponent))}</b>\n"
+    f"♟️ <code>{opponent_chess}</code>\n\n"
+    f"━━━━━━━━━━━━━━\n"
+    f"🔗 <a href='{challenge_url}'><b>ابدأ التحدي</b></a>\n\n"
+    f"🏆 بعد انتهاء المباراة استخدم <code>/result</code> لاعتماد النتيجة."
+)
+
+
+    msg = await update.message.reply_text(
+    text,
+    parse_mode="HTML",
+    disable_web_page_preview=False
+   )
+
+    matches[match_id]["message_id"] =          msg.message_id
+    save_matches()
+
+async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
+
+    if not update.message.reply_to_message:
+        await update.message.reply_text("❌ استخدم الأمر بالرد على رسالة التحدي.")
+        return
+
+    if not await is_admin(update, update.effective_user.id) and str(update.effective_user.id) not in point_admins:
+        await update.message.reply_text("❌ هذا الأمر للمشرفين ومسؤولي النقاط فقط.")
+        return
+
+    reply_id = update.message.reply_to_message.message_id
+
+    match = None
+
+    for data in matches.values():
+        if data.get("message_id") == reply_id:
+            match = data
+            break
+
+    if not match:
+        await update.message.reply_text("❌ هذه ليست رسالة تحدي.")
+        return
+
+    result = get_match_result(
+        match["username1"],
+        match["username2"],
+        match["time"]
+    )
+
+    print(match["username1"])
+    print(match["username2"])
+    print(match["time"])
+    print(result)
+
+    if result is None:
+        await update.message.reply_text(
+            "⏳ لم يتم العثور على مباراة بين اللاعبين بعد."
+        )
+        return 
+
+    if match["status"] == "finished":
+        await update.message.reply_text(
+            "❌ تم اعتماد نتيجة هذه المباراة مسبقًا."
+        )
+        return
+
+    # التعادل
+    if result["winner"] == "draw":
+        match["status"] = "finished"
+        match["result"] = "draw"
+        save_matches()
+
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=match["message_id"],
+            parse_mode="HTML",
+            disable_web_page_preview=False,
+            text=f"""
+🤝 <b>انتهت المباراة</b>
+━━━━━━━━━━━━━━
+
+⚖️ <b>النتيجة:</b> تعادل
+
+🔗 <a href="{result['game_url']}">عرض المباراة</a>
+
+✅ تم اعتماد النتيجة رسميًا.
+"""
+        )
+
+        await update.message.reply_text("✅ تم اعتماد نتيجة التعادل.")
+        return
+
+    # تحديد الفائز والخاسر
+    if result["winner"] == match["username1"].lower():
+        winner_id = match["player1"]
+        loser_id = match["player2"]
+        winner_name = match["username1"]
+        loser_name = match["username2"]
+    else:
+        winner_id = match["player2"]
+        loser_id = match["player1"]
+        winner_name = match["username2"]
+        loser_name = match["username1"]
+
+    # نقاط الفائز
+    winner_old = points.get(winner_id, 20)
+    points[winner_id] = winner_old + 8
+
+    # خصم نقاط الخاسر
+    loser_old = points.get(loser_id, 20)
+
+    if loser_old >= 200:
+        lose_points = 8
+    elif loser_old >= 100:
+        lose_points = 5
+    else:
+        lose_points = 0
+
+    points[loser_id] = max(0, loser_old - lose_points)
+
+    save_points()
+
+    # عدد الانتصارات اليومية
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    if today not in daily_wins:
+        daily_wins[today] = {}
+
+    daily_wins[today][winner_id] = daily_wins[today].get(winner_id, 0) + 1
+
+    save_daily_wins()
+
+    match["status"] = "finished"
+    match["result"] = result["winner"]
+
+    save_matches()
+
+    await context.bot.edit_message_text(
+        chat_id=update.effective_chat.id,
+        message_id=match["message_id"],
+        parse_mode="HTML",
+        disable_web_page_preview=False,
+        text=f"""
+🏁 <b>انتهت المباراة</b>
+━━━━━━━━━━━━━━
+
+👑 <b>الفائز</b>
+<code>{winner_name}</code>
+
+🏆 <b>المكافأة:</b> +8 نقطة
+
+📉 <b>الخاسر</b>
+<code>{loser_name}</code>
+
+➖ <b>الخصم:</b> {lose_points} نقطة
+
+🔗 <a href="{result['game_url']}">عرض المباراة</a>
+
+✅ تم اعتماد النتيجة رسميًا.
+"""
+    )
+
+    await update.message.reply_text(
+        "✅ تم اعتماد النتيجة وتحديث النقاط بنجاح."
+    )
+
+async def grant(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
+
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text(
+            "❌ هذا الأمر متاح للمالك فقط."
+        )
+        return
+
+    if not update.message.reply_to_message:
+        await update.message.reply_text(
+            "❌ استخدم الأمر بالرد على رسالة اللاعب.\n\nمثال:\n/grant 👑 THE FINAL KING"
+        )
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "❌ اكتب اسم الوسام بعد الأمر."
+        )
+        return
+
+
+    user = update.message.reply_to_message.from_user
+    uid = str(user.id)
+
+    badge = " ".join(context.args)
+
+
+    if uid not in badges:
+        badges[uid] = []
+
+
+    # إضافة نجمة ★ إذا كان الوسام موجود
+    existing = None
+
+    for b in badges[uid]:
+        if b.replace("★","").strip() == badge:
+            existing = b
+            break
+
+
+    if existing:
+
+        index = badges[uid].index(existing)
+        badges[uid][index] = existing + " ★"
+
+    else:
+        badges[uid].append(badge)
+
+
+    save_badges()
+
+
+    await update.message.reply_text(
+f"""
+🏅 تم تحديث إنجازات اللاعب
+
+👤 اللاعب:
+{get_name(user)}
+
+🏆 الإنجاز:
+{badge}
+
+✅ تمت الإضافة بنجاح
+"""
+)
+
+def get_level(score):
+
+    if score < 50:
+        return "★★☆☆☆"
+
+    elif score < 150:
+        return "★★★☆☆"
+
+    elif score < 300:
+        return "★★★★☆"
+
+    else:
+        return "★★★★★"
+
+
+
+async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
+
+    user = update.effective_user
+
+    if update.message.reply_to_message:
+        user = update.message.reply_to_message.from_user
+
+    uid = str(user.id)
+
     name = get_name(user)
 
-    if uid not in users:
-        chess_username = "غير مربوط"
-        rating = {"rapid": "N/A", "blitz": "N/A", "bullet": "N/A"}
-    else:
+    if uid in users:
         chess_username = users[uid]
         rating = get_elo(chess_username)
+    else:
+        chess_username = "غير مربوط"
+        rating = {
+            "rapid": "N/A",
+            "blitz": "N/A",
+            "bullet": "N/A"
+        }
 
     score = points.get(uid, 20)
+
     rank = get_rank(score)
+
     level = get_level(score)
+
     user_badges = badges.get(uid, [])
 
-    badge_text = "\n".join([f"🏅 {escape(b)}" for b in user_badges]) if user_badges else "لا توجد إنجازات"
+    if user_badges:
+        badge_text = "\n".join(
+            [f"🏅 {b}" for b in user_badges]
+        )
+    else:
+        badge_text = "There are no achievements⛔"
+
 
     text = f"""
 👤 <b>PLAYER PROFILE</b>
 ━━━━━━━━━━━━━━━━━━
-🏷️ <b>الاسم</b>
-{escape(name)}
+
+🏷️ <b>{escape(name)}</b>
 
 ♟️ <b>Chess.com</b>
 <code>{chess_username}</code>
 ━━━━━━━━━━━━━━━━━━
 📊 <b>RATING</b>
+
 ⚡ Rapid : <b>{rating['rapid']}</b>
 🔥 Blitz : <b>{rating['blitz']}</b>
 💣 Bullet : <b>{rating['bullet']}</b>
 ━━━━━━━━━━━━━━━━━━
-🏆 <b>CHECK MATE POINTS</b>
-⭐ <b>{score}</b>
-🎖️ {rank}
+🏆 <b>CHECK MATE RANK</b>
+
+⭐ Points: <b>{score}</b>
+
+🎖️ Rank:
+<b>{rank}</b>
+
+⭐ Level:
+<b>{level}</b>
 ━━━━━━━━━━━━━━━━━━
-👑 <b>ACHIEVEMENTS</b>
+
+             🏅
+✨ <b>ACHIEVEMENTS</b> ✨
+
+🏆 🏆 🏆
+
 {badge_text}
+
+🏆 🏆 🏆
+
+
 ━━━━━━━━━━━━━━━━━━
-⭐ <b>ACCOUNT LEVEL</b>
-{level}
+
+♟️ <b>CHECK MATE</b>
+<b>CHESS PROFILE</b>
+
 """
+
+    await update.message.reply_text(
+        text,
+        parse_mode="HTML"
+    )
+
+async def removebadge(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
+
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text("❌ هذا الأمر متاح للمالك فقط.")
+        return
+
+    if not update.message.reply_to_message:
+        await update.message.reply_text(
+            "❌ استخدم الأمر بالرد على رسالة اللاعب.\n\nمثال:\n/removebadge سيد التكتيك"
+        )
+        return
+
+    if not context.args:
+        await update.message.reply_text("❌ اكتب اسم الإنجاز المراد حذفه.")
+        return
+
+    user = update.message.reply_to_message.from_user
+    uid = str(user.id)
+
+    if uid not in badges:
+        await update.message.reply_text("❌ هذا اللاعب لا يملك أي إنجازات.")
+        return
+
+    badge = " ".join(context.args)
+
+    removed = False
+
+    for b in badges[uid][:]:
+        if b.replace("★", "").strip() == badge:
+            badges[uid].remove(b)
+            removed = True
+
+    if not removed:
+        await update.message.reply_text("❌ هذا الإنجاز غير موجود.")
+        return
+
+    if not badges[uid]:
+        del badges[uid]
+
+    save_badges()
+
+    await update.message.reply_text(
+f"""🗑️ تم حذف الإنجاز
+
+👤 اللاعب:
+{get_name(user)}
+
+❌ الإنجاز المحذوف:
+{badge}
+
+✅ تمت العملية بنجاح."""
+    )
+
+async def top_callback(query, context):
+    set_active_chat(query.message.chat.id)
+    set_active_chat(query.message.chat.id)
+
+    if not points:
+
+        await query.edit_message_text(
+            "لا يوجد بيانات بعد.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+            ])
+        )
+        return
+
+    sorted_users = sorted(points.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    places = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+    text = "🏆 <b>TOP CHECK MATE</b>\n"
+    text += "━━━━━━━━━━━━━━━━━━\n\n"
+
+    leader_name = ""
+    leader_score = 0
+
+    for i, (uid, score) in enumerate(sorted_users):
+
+        try:
+            member = await context.bot.get_chat_member(query.message.chat.id, int(uid))
+            display_name = get_name(member.user)
+        except:
+            chess_name = users.get(uid)
+            display_name = chess_name if chess_name else uid
+
+        if i == 0:
+            leader_name = display_name
+            leader_score = score
+
+        text += (
+            f"{places[i]} <b>{escape(display_name)}</b>\n"
+            f"🏆 <code>{score}</code> نقطة\n\n"
+        )
+
+    text += "━━━━━━━━━━━━━━━━━━\n"
+    text += f"👑 <b>Leader :</b> {escape(leader_name)}"
+
     await query.edit_message_text(
         text,
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]]),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        ])
     )
 
-# --- تشغيل البوت والـ Handlers ---
+async def champions_callback(query, context):
+    set_active_chat(query.message.chat.id)
+    set_active_chat(query.message.chat.id)
+
+    text = "👑 <b>THE CHAMPIONS</b>\n"
+    text += "━━━━━━━━━━━━━━━━━━\n\n"
+
+    if not badges:
+
+        text += "❌ لا يوجد أبطال حتى الآن."
+
+    else:
+
+        for uid, user_badges in badges.items():
+
+            try:
+                member = await context.bot.get_chat_member(
+                    query.message.chat.id,
+                    int(uid)
+                )
+
+                name = get_name(member.user)
+
+            except:
+
+                name = users.get(uid, uid)
+
+            text += f"👤 <b>{escape(name)}</b>\n"
+
+            for badge in user_badges:
+                text += f"🏅 {escape(badge)}\n"
+
+            text += "\n━━━━━━━━━━━━━━━━━━\n\n"
+
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        ])
+    )
+
+async def link_callback(query, context):
+    set_active_chat(query.message.chat.id)
+    set_active_chat(query.message.chat.id)
+
+    text = """
+🔗 <b>LINK CHESS.COM ACCOUNT</b>
+
+━━━━━━━━━━━━━━━━━━
+
+لربط حسابك اكتب الأمر التالي:
+
+<code>/sign username</code>
+
+مثال:
+
+<code>/sign Hikaru</code>
+
+━━━━━━━━━━━━━━━━━━
+
+بعد الربط ستظهر بياناتك داخل النظام تلقائياً.
+"""
+
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        ])
+    )
+
+async def profile_callback(query, context):
+    set_active_chat(query.message.chat.id)
+    set_active_chat(query.message.chat.id)
+
+    user = query.from_user
+    uid = str(user.id)
+
+    name = get_name(user)
+
+    if uid not in users:
+
+        chess_username = "غير مربوط"
+
+        rating = {
+            "rapid": "N/A",
+            "blitz": "N/A",
+            "bullet": "N/A"
+        }
+
+    else:
+
+        chess_username = users[uid]
+        rating = get_elo(chess_username)
+
+    score = points.get(uid, 20)
+
+    rank = get_rank(score)
+
+    level = get_level(score)
+
+    user_badges = badges.get(uid, [])
+
+    if user_badges:
+
+        badge_text = "\n".join(
+            [f"🏅 {escape(b)}" for b in user_badges]
+        )
+
+    else:
+
+        badge_text = "لا توجد إنجازات"
+
+    text = f"""
+👤 <b>PLAYER PROFILE</b>
+
+━━━━━━━━━━━━━━━━━━
+
+🏷️ <b>الاسم</b>
+{escape(name)}
+
+♟️ <b>Chess.com</b>
+
+<code>{chess_username}</code>
+
+━━━━━━━━━━━━━━━━━━
+
+📊 <b>RATING</b>
+
+⚡ Rapid : <b>{rating['rapid']}</b>
+
+🔥 Blitz : <b>{rating['blitz']}</b>
+
+💣 Bullet : <b>{rating['bullet']}</b>
+
+━━━━━━━━━━━━━━━━━━
+
+🏆 <b>CHECK MATE POINTS</b>
+
+⭐ <b>{score}</b>
+
+🎖️ {rank}
+
+━━━━━━━━━━━━━━━━━━
+
+👑 <b>ACHIEVEMENTS</b>
+
+{badge_text}
+
+━━━━━━━━━━━━━━━━━━
+
+⭐ <b>ACCOUNT LEVEL</b>
+
+{level}
+"""
+
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        ])
+    )
+
+
+async def migratehere(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
+
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text("❌ هذا الأمر متاح للمالك فقط.")
+        return
+
+    if update.effective_chat.type not in ["group", "supergroup"]:
+        await update.message.reply_text("❌ استخدم الأمر داخل الجروب الذي تريد نقل بياناته إليه.")
+        return
+
+    changed = migrate_legacy_here()
+
+    if changed:
+        await update.message.reply_text(
+            "✅ تم فصل بيانات البوت.\n\n"
+            "📌 تم نقل البيانات القديمة إلى هذا الجروب فقط.\n"
+            "🔒 أي جروب آخر سيبدأ ببيانات مستقلة تمامًا."
+        )
+    else:
+        await update.message.reply_text(
+            "ℹ️ لا توجد بيانات قديمة تحتاج إلى نقل، أو تم تنفيذ النقل مسبقًا."
+        )
+
 app = Application.builder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("migratehere", migratehere))
 app.add_handler(CommandHandler("sign", sign))
 app.add_handler(CommandHandler("elo", elo))
 app.add_handler(CommandHandler("points", mypoints))
 app.add_handler(CommandHandler("top", top))
+app.add_handler(CommandHandler("unlink", unlink))
+app.add_handler(CommandHandler("promotepoints", promotepoints))
+app.add_handler(CommandHandler("removepoints", removepoints))
+app.add_handler(CommandHandler("play", play))
+app.add_handler(CommandHandler("result", result))
+app.add_handler(CommandHandler("grant", grant))
+app.add_handler(CommandHandler("profile", profile))
+app.add_handler(CommandHandler("removebadge", removebadge))
 app.add_handler(CallbackQueryHandler(button_handler))
+
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.SUPERGROUP | filters.ChatType.GROUP), handle_points))
 
 app.run_polling()
