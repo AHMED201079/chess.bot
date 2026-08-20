@@ -408,7 +408,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "top_bullet":
 
-    await topeloBullet_callback(query, context)
+       await topeloBullet_callback(query, context)
 
     elif data == "champions":
 
