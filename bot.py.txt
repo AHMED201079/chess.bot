@@ -406,7 +406,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await topeloB_callback(query, context)
 
-elif data == "top_bullet":
+     elif data == "top_bullet":
 
     await topeloBullet_callback(query, context)
 
