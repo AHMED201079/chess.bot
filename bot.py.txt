@@ -13,6 +13,7 @@ import time
 import asyncio
 import io
 import chess
+import chess.pgn
 from PIL import Image, ImageDraw, ImageFont
 
 TOKEN = "8953879123:AAFtuZZoHSrHlf7b7037fJYAyWsPYjeDyI4"
@@ -198,6 +199,226 @@ def get_lichess_puzzle():
     except Exception as e:
         print("Lichess puzzle error:", e)
         return None
+
+
+def get_puzzle_board(data):
+    try:
+        game_pgn = data["game"]["pgn"]
+        initial_ply = data["puzzle"]["initialPly"]
+
+        pgn = io.StringIO(game_pgn)
+        game = chess.pgn.read_game(pgn)
+
+        if game is None:
+            return None
+
+        board = game.board()
+
+        for ply, move in enumerate(game.mainline_moves()):
+            if ply >= initial_ply:
+                break
+            board.push(move)
+
+        return board
+
+    except Exception as e:
+        print("Puzzle board error:", e)
+        return None
+
+def check_puzzle_move(board, move_text):
+    try:
+        move = board.parse_san(move_text)
+        return move
+    except (ValueError, chess.IllegalMoveError, chess.AmbiguousMoveError):
+        return None
+
+def apply_puzzle_move(board, move):
+    try:
+        board.push(move)
+        return True
+    except Exception as e:
+        print("Puzzle move error:", e)
+        return False
+
+
+def render_puzzle_board(board):
+    try:
+        board_size = 720
+        square_size = board_size // 8
+
+        light_square = (240, 217, 181)
+        dark_square = (181, 136, 99)
+
+        image = Image.new("RGB", (board_size, board_size), light_square)
+        draw = ImageDraw.Draw(image)
+
+        # رسم مربعات الرقعة
+        for rank in range(8):
+            for file in range(8):
+                x1 = file * square_size
+                y1 = rank * square_size
+                x2 = x1 + square_size
+                y2 = y1 + square_size
+
+                if (rank + file) % 2 == 1:
+                    draw.rectangle(
+                        [x1, y1, x2, y2],
+                        fill=dark_square
+                    )
+
+        # رموز القطع
+        pieces = {
+            "P": "♙",
+            "N": "♘",
+            "B": "♗",
+            "R": "♖",
+            "Q": "♕",
+            "K": "♔",
+            "p": "♟",
+            "n": "♞",
+            "b": "♝",
+            "r": "♜",
+            "q": "♛",
+            "k": "♚",
+        }
+
+        try:
+            piece_font = ImageFont.truetype(
+                "/system/fonts/NotoSansSymbols2-Regular.ttf",
+                78
+            )
+        except Exception:
+            piece_font = ImageFont.load_default()
+
+        # رسم القطع
+        for square, piece in board.piece_map().items():
+            file = chess.square_file(square)
+            rank = 7 - chess.square_rank(square)
+
+            x = file * square_size
+            y = rank * square_size
+
+            symbol = pieces[piece.symbol()]
+
+            bbox = draw.textbbox(
+                (0, 0),
+                symbol,
+                font=piece_font
+            )
+
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+
+            text_x = x + (square_size - text_width) / 2
+            text_y = y + (square_size - text_height) / 2 - 8
+
+            draw.text(
+                (text_x, text_y),
+                symbol,
+                font=piece_font,
+                fill=(20, 20, 20)
+            )
+
+        output = io.BytesIO()
+        output.name = "puzzle.png"
+
+        image.save(output, format="PNG")
+        output.seek(0)
+
+        return output
+
+    except Exception as e:
+        print("Puzzle render error:", e)
+        return None
+
+
+def build_puzzle_message(difficulty, time_limit):
+    return (
+        "♟️ <b>CHECK MATE PUZZLE</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        f"🎯 <b>المستوى:</b> {difficulty}\n"
+        f"⏱️ <b>الوقت:</b> {time_limit} دقيقة\n\n"
+        "🧠 <b>حل اللغز بالنقلة الصحيحة.</b>\n"
+        "📌 أرسل إجابتك بهذا الشكل:\n"
+        "<code>/Rc5</code>\n\n"
+        "⚠️ لديك <b>محاولتان خاطئتان</b> فقط.\n"
+        "🏆 لا توجد مكافأة نقاط — الهدف هو حل اللغز.\n\n"
+        "━━━━━━━━━━━━━━━━━━"
+    )
+
+
+def finish_puzzle(chat_id, message="🏁 انتهى اللغز."):
+    try:
+        if chat_id in puzzles:
+            del puzzles[chat_id]
+            save_puzzles()
+
+        return message
+
+    except Exception as e:
+        print("Finish puzzle error:", e)
+        return message
+
+def puzzle_solution(data):
+    try:
+        return data["puzzle"]["solution"]
+    except (KeyError, TypeError):
+        return []
+
+def create_puzzle_state(data, difficulty, time_limit, user_id):
+    puzzle = data.get("puzzle", {})
+
+    return {
+        "owner_id": user_id,
+        "difficulty": difficulty,
+        "time_limit": time_limit,
+        "started_at": time.time(),
+        "data": data,
+        "solution": puzzle.get("solution", []),
+        "current_step": 0,
+        "wrong_attempts": 0,
+        "active": True,
+    }
+
+def puzzle_difficulty_keyboard():
+    keyboard = [
+        [
+            InlineKeyboardButton("🟢 Easy", callback_data="puzzle_easy"),
+            InlineKeyboardButton("🟡 Medium", callback_data="puzzle_medium"),
+        ],
+        [
+            InlineKeyboardButton("🔴 Hard", callback_data="puzzle_hard"),
+            InlineKeyboardButton("⚫ Extreme", callback_data="puzzle_extreme"),
+        ],
+    ]
+
+    return InlineKeyboardMarkup(keyboard)
+
+def puzzle_time_keyboard(difficulty):
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "⏱️ 1 دقيقة",
+                callback_data=f"ptime_{difficulty}_1"
+            ),
+            InlineKeyboardButton(
+                "⏱️ 2 دقيقة",
+                callback_data=f"ptime_{difficulty}_2"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                "⏱️ 3 دقائق",
+                callback_data=f"ptime_{difficulty}_3"
+            ),
+            InlineKeyboardButton(
+                "⏱️ 5 دقائق",
+                callback_data=f"ptime_{difficulty}_5"
+            ),
+        ],
+    ]
+
+    return InlineKeyboardMarkup(keyboard)
 
 def get_elo(username):
     url = f"https://api.chess.com/pub/player/{username}/stats"
@@ -400,6 +621,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = query.data
 
+if data.startswith("puzzle_"):
+    difficulty = data.replace("puzzle_", "")
+
+    await query.edit_message_text(
+        f"♟️ <b>CHECK MATE PUZZLE</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"🎯 اختر وقت اللغز:\n\n"
+        f"المستوى: <b>{difficulty.title()}</b>",
+        parse_mode="HTML",
+        reply_markup=puzzle_time_keyboard(difficulty)
+    )
+    return
+
+
     if data == "back":
 
         await query.edit_message_text(
@@ -454,7 +689,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ━━━━━━━━━━━━━━━━━━
 
-👋 مرحبًا بك!
+اهلا بك في بوت الاحترافي CHACKMATE  
 
 اختر أحد الأقسام من الأزرار بالأسفل 👇
 
@@ -465,6 +700,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text,
         parse_mode="HTML",
         reply_markup=start_keyboard()
+    )
+
+async def puzzle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_active_chat(update.effective_chat.id)
+
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+
+    if chat_id in puzzles:
+        await update.message.reply_text(
+            "⚠️ <b>يوجد لغز نشط بالفعل!</b>\n\n"
+            "🏁 انتظر انتهاء اللغز الحالي قبل بدء لغز جديد.",
+            parse_mode="HTML"
+        )
+        return
+
+    puzzles[chat_id] = {
+        "status": "selecting_difficulty",
+        "owner_id": user_id
+    }
+
+    save_puzzles()
+
+    await update.message.reply_text(
+        "♟️ <b>CHECK MATE PUZZLE</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "🎯 <b>اختر مستوى اللغز:</b>\n\n"
+        "🟢 Easy — سهل\n"
+        "🟡 Medium — متوسط\n"
+        "🔴 Hard — صعب\n"
+        "⚫ Extreme — متطرف\n\n"
+        "━━━━━━━━━━━━━━━━━━",
+        parse_mode="HTML",
+        reply_markup=puzzle_difficulty_keyboard()
     )
 
 async def sign(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1595,6 +1864,7 @@ async def migratehere(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = Application.builder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("puzzle", puzzle))
 app.add_handler(CommandHandler("migratehere", migratehere))
 app.add_handler(CommandHandler("sign", sign))
 app.add_handler(CommandHandler("elo", elo))
@@ -1611,5 +1881,5 @@ app.add_handler(CommandHandler("removebadge", removebadge))
 app.add_handler(CallbackQueryHandler(button_handler))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.SUPERGROUP | filters.ChatType.GROUP), handle_points))
-print("Lichess puzzle test:", get_lichess_puzzle())
+
 app.run_polling()
