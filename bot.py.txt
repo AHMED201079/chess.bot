@@ -418,6 +418,94 @@ def prefetch_pool(count=4):
         time.sleep(3)
 
 
+OFFLINE_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "puzzles_offline.json"
+)
+OFFLINE_USED_FILE = _p("offline_used.json")
+_OFFLINE_CACHE = None
+
+
+def _load_offline_bundle():
+    """1200 لغز مُدقّق من قاعدة بيانات Lichess — يعمل بدون إنترنت نهائياً."""
+    global _OFFLINE_CACHE
+    if _OFFLINE_CACHE is None:
+        try:
+            with open(OFFLINE_FILE, "r", encoding="utf-8") as handle:
+                _OFFLINE_CACHE = json.load(handle)
+            total = sum(len(v) for v in _OFFLINE_CACHE.values())
+            log.info("المخزون الاحتياطي جاهز: %d لغز", total)
+        except (OSError, json.JSONDecodeError):
+            log.warning("ملف puzzles_offline.json غير موجود — المصدر الاحتياطي معطّل.")
+            _OFFLINE_CACHE = {}
+    return _OFFLINE_CACHE
+
+
+def offline_puzzle(difficulty):
+    """يأخذ لغزاً من المخزون الاحتياطي مع تجنّب تكرار ما سبق عرضه."""
+    bundle = _load_offline_bundle()
+    items = bundle.get(difficulty) or []
+    if not items:
+        return None
+
+    used = set()
+    try:
+        with open(OFFLINE_USED_FILE, "r", encoding="utf-8") as handle:
+            used = set(json.load(handle))
+    except (OSError, json.JSONDecodeError, TypeError):
+        pass
+
+    available = [item for item in items if item.get("id") not in used]
+    if not available:
+        available, used = items, set()
+
+    chosen = random.choice(available)
+    used.add(chosen.get("id"))
+    try:
+        with open(OFFLINE_USED_FILE, "w", encoding="utf-8") as handle:
+            json.dump(sorted(used), handle)
+    except OSError:
+        pass
+
+    return {
+        "fen": chosen["fen"],
+        "source": "offline",
+        "puzzle": {
+            "id": chosen.get("id", "offline"),
+            "rating": chosen.get("rating", 1500),
+            "solution": chosen.get("solution", []),
+        },
+    }
+
+
+def chesscom_puzzle():
+    """لغز عشوائي من chess.com — مصدر ثانٍ مستقل تماماً عن Lichess."""
+    try:
+        response = http_session().get(
+            "https://api.chess.com/pub/puzzle/random", timeout=HTTP_TIMEOUT
+        )
+        if response.status_code != 200:
+            return None
+        payload = response.json()
+        game = chess.pgn.read_game(io.StringIO(payload.get("pgn", "")))
+        if game is None:
+            return None
+        board = game.board()
+        solution = [move.uci() for move in game.mainline_moves()]
+        if not solution:
+            return None
+        return {
+            "fen": board.fen(),
+            "source": "chess.com",
+            "puzzle": {
+                "id": str(payload.get("publish_time", "chesscom")),
+                "rating": 1900,
+                "solution": solution,
+            },
+        }
+    except (requests.RequestException, ValueError, KeyError):
+        return None
+
+
 def fetch_lichess_puzzle(difficulty="medium"):
     """
     يجلب لغزاً بالمستوى المطلوب: من المخزون المحلي أولاً، ثم من Lichess.
@@ -452,10 +540,22 @@ def fetch_lichess_puzzle(difficulty="medium"):
     if cached is not None:
         return cached
 
+    # المصدر الاحتياطي الأول: مخزون محلي دائم بنفس المستوى المطلوب
+    offline = offline_puzzle(difficulty)
+    if offline is not None:
+        log.info("تم تقديم لغز من المخزون الاحتياطي (%s).", difficulty)
+        return offline
+
+    # المصدر الاحتياطي الثاني: chess.com
+    external = chesscom_puzzle()
+    if external is not None:
+        log.info("تم تقديم لغز من chess.com.")
+        return external
+
     if fallback is not None:
         return fallback
 
-    LAST_PUZZLE_ERROR = last_error or "تعذّر الوصول إلى Lichess"
+    LAST_PUZZLE_ERROR = last_error or "تعذّر الوصول إلى أي مصدر ألغاز"
     return None
 
 
@@ -465,6 +565,14 @@ def get_puzzle_board(data):
     وليس initialPly كما كان في الكود القديم. تم التحقق عملياً من الـ API.
     """
     try:
+        # ألغاز المخزون الاحتياطي وchess.com تأتي بموضع FEN جاهز
+        direct_fen = data.get("fen")
+        if direct_fen:
+            board = chess.Board(direct_fen)
+            solution = data["puzzle"].get("solution") or []
+            if solution and chess.Move.from_uci(solution[0]) not in board.legal_moves:
+                return None
+            return board
         game_pgn = data["game"]["pgn"]
         initial_ply = int(data["puzzle"]["initialPly"])
         game = chess.pgn.read_game(io.StringIO(game_pgn))
@@ -2046,6 +2154,9 @@ async def diag(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     counts = await asyncio.to_thread(pool_counts)
     pool_text = " | ".join(f"{band}: {count}" for band, count in counts.items())
+    bundle = await asyncio.to_thread(_load_offline_bundle)
+    offline_total = sum(len(v) for v in bundle.values())
+    cc = await asyncio.to_thread(chesscom_puzzle)
     pieces = len([n for n in os.listdir(PIECE_DIR)]) if os.path.isdir(PIECE_DIR) else 0
 
     await notice.edit_text(
@@ -2053,6 +2164,8 @@ async def diag(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🌐 Lichess: {escape(lichess)}\n"
         f"♟️ Chess.com: {escape(chesscom)}\n"
         f"📦 مخزون الألغاز: {escape(pool_text)}\n"
+        f"🗄️ المخزون الاحتياطي: {offline_total} لغز\n"
+        f"🔁 مصدر بديل (chess.com puzzle): {'✅ سليم' if cc else '❌ غير متاح'}\n"
         f"🎨 صور القطع: {pieces}/12\n"
         f"💾 مجلد البيانات: <code>{escape(DATA_DIR)}</code>",
         parse_mode="HTML",
