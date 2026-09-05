@@ -43,12 +43,10 @@ log = logging.getLogger("checkmate-bot")
 # =========================
 # الإعدادات (لا تضع التوكن داخل الكود أبداً)
 # =========================
-TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+TOKEN = os.environ.get("BOT_TOKEN", "8953879123:AAFtuZZoHSrHlf7b7037fJYAyWsPYjeDyI4").strip()
 if not TOKEN:
     raise SystemExit(
-        "❌ متغير البيئة BOT_TOKEN غير موجود.\n"
-        '   استخدم:  export BOT_TOKEN="التوكن_الجديد"'
-    )
+      
 
 try:
     OWNER_ID = int(os.environ.get("OWNER_ID", "6785722062"))
