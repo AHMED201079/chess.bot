@@ -273,31 +273,190 @@ RATING_RANGES = {
 }
 
 
-def fetch_lichess_puzzle(difficulty="medium"):
-    """يُنفَّذ في خيط منفصل — لا يحجب حلقة الأحداث."""
-    low, high = RATING_RANGES.get(difficulty, RATING_RANGES["medium"])
-    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
-    fallback = None
-    for _ in range(6):
+PUZZLE_POOL_FILE = _p("puzzle_pool.json")
+POOL_MAX_PER_BAND = 40
+LAST_PUZZLE_ERROR = ""
+RATE_LIMITED_UNTIL = 0.0
+RATE_LIMIT_COOLDOWN = 180
+_POOL_LOCK = threading.RLock()
+_HTTP_SESSION = None
+
+
+def http_session():
+    """جلسة HTTP واحدة بإعادة محاولة تلقائية (أسرع وأقل استهلاكاً للشبكة)."""
+    global _HTTP_SESSION
+    if _HTTP_SESSION is None:
+        session = requests.Session()
+        session.headers.update({"User-Agent": USER_AGENT, "Accept": "application/json"})
         try:
-            response = requests.get(
-                "https://lichess.org/api/puzzle/next",
-                headers=headers,
-                timeout=HTTP_TIMEOUT,
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.retry import Retry
+
+            retry = Retry(
+                total=2, backoff_factor=0.8,
+                status_forcelist=(500, 502, 503, 504),
+                allowed_methods=frozenset(["GET"]),
             )
-            if response.status_code != 200:
-                continue
-            data = response.json()
-        except (requests.RequestException, ValueError) as exc:
-            log.warning("Lichess puzzle error: %s", exc)
+            adapter = HTTPAdapter(max_retries=retry, pool_connections=4, pool_maxsize=8)
+            session.mount("https://", adapter)
+        except ImportError:
+            pass
+        _HTTP_SESSION = session
+    return _HTTP_SESSION
+
+
+def rating_band(rating):
+    try:
+        rating = int(rating)
+    except (TypeError, ValueError):
+        return "medium"
+    for name, (low, high) in RATING_RANGES.items():
+        if low <= rating <= high:
+            return name
+    return "extreme" if rating > 3200 else "easy"
+
+
+def _load_pool():
+    if not os.path.exists(PUZZLE_POOL_FILE):
+        return {}
+    try:
+        with open(PUZZLE_POOL_FILE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_pool(pool):
+    try:
+        directory = os.path.dirname(PUZZLE_POOL_FILE) or "."
+        fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(pool, handle, ensure_ascii=False)
+        os.replace(tmp, PUZZLE_POOL_FILE)
+    except OSError as exc:
+        log.warning("تعذّر حفظ مخزون الألغاز: %s", exc)
+
+
+def pool_add(data):
+    """يخزّن أي لغز يصل من Lichess ليُستخدم لاحقاً بدون إنترنت."""
+    try:
+        puzzle_id = data["puzzle"]["id"]
+        band = rating_band(data["puzzle"].get("rating", 1500))
+    except (KeyError, TypeError):
+        return
+    with _POOL_LOCK:
+        pool = _load_pool()
+        bucket = pool.setdefault(band, [])
+        if any(item.get("puzzle", {}).get("id") == puzzle_id for item in bucket):
+            return
+        bucket.append(data)
+        if len(bucket) > POOL_MAX_PER_BAND:
+            del bucket[: len(bucket) - POOL_MAX_PER_BAND]
+        _save_pool(pool)
+
+
+def pool_take(difficulty):
+    with _POOL_LOCK:
+        pool = _load_pool()
+        bucket = pool.get(difficulty) or []
+        if not bucket:
+            return None
+        data = bucket.pop(random.randrange(len(bucket)))
+        pool[difficulty] = bucket
+        _save_pool(pool)
+        return data
+
+
+def pool_counts():
+    pool = _load_pool()
+    return {band: len(pool.get(band) or []) for band in RATING_RANGES}
+
+
+def _request_puzzle():
+    """طلب واحد من Lichess. يُرجع (data, error_text)."""
+    global RATE_LIMITED_UNTIL
+    remaining = RATE_LIMITED_UNTIL - time.time()
+    if remaining > 0:
+        return None, f"Lichess موقوف مؤقتاً — انتظر {int(remaining)} ثانية"
+    try:
+        response = http_session().get(
+            "https://lichess.org/api/puzzle/next", timeout=HTTP_TIMEOUT
+        )
+    except requests.Timeout:
+        return None, "انتهت مهلة الاتصال بـ Lichess"
+    except requests.ConnectionError:
+        return None, "لا يوجد اتصال بالإنترنت أو Lichess محجوب"
+    except requests.RequestException as exc:
+        return None, f"خطأ شبكة: {type(exc).__name__}"
+
+    if response.status_code == 429:
+        try:
+            wait = int(response.headers.get("Retry-After", RATE_LIMIT_COOLDOWN))
+        except ValueError:
+            wait = RATE_LIMIT_COOLDOWN
+        wait = max(wait, RATE_LIMIT_COOLDOWN)
+        RATE_LIMITED_UNTIL = time.time() + wait
+        return None, f"Lichess أوقف الطلبات مؤقتاً — انتظر {wait} ثانية"
+    if response.status_code != 200:
+        return None, f"Lichess رد بالكود {response.status_code}"
+    try:
+        return response.json(), ""
+    except ValueError:
+        return None, "رد غير صالح من Lichess"
+
+
+def prefetch_pool(count=4):
+    """تعبئة المخزون في الخلفية حتى تعمل المستويات الصعبة فوراً."""
+    if sum(pool_counts().values()) >= POOL_MAX_PER_BAND:
+        return
+    for _ in range(count):
+        data, _err = _request_puzzle()
+        if data is None:
+            return
+        pool_add(data)
+        time.sleep(3)
+
+
+def fetch_lichess_puzzle(difficulty="medium"):
+    """
+    يجلب لغزاً بالمستوى المطلوب: من المخزون المحلي أولاً، ثم من Lichess.
+    يُنفَّذ في خيط منفصل — لا يحجب حلقة الأحداث.
+    """
+    global LAST_PUZZLE_ERROR
+    LAST_PUZZLE_ERROR = ""
+
+    cached = pool_take(difficulty)
+    if cached is not None:
+        return cached
+
+    fallback = None
+    last_error = ""
+    for attempt in range(3):
+        data, error = _request_puzzle()
+        if data is None:
+            last_error = error
+            if "موقوف" in error or "أوقف" in error:
+                break
+            time.sleep(0.8 * (attempt + 1))
             continue
 
-        rating = data.get("puzzle", {}).get("rating", 1500)
+        band = rating_band(data.get("puzzle", {}).get("rating", 1500))
+        if band == difficulty:
+            return data
+        pool_add(data)
         if fallback is None:
             fallback = data
-        if low <= rating <= high:
-            return data
-    return fallback
+
+    cached = pool_take(difficulty)
+    if cached is not None:
+        return cached
+
+    if fallback is not None:
+        return fallback
+
+    LAST_PUZZLE_ERROR = last_error or "تعذّر الوصول إلى Lichess"
+    return None
 
 
 def get_puzzle_board(data):
@@ -548,8 +707,8 @@ def _board_background(square_size, margin):
 
 def render_puzzle_board(board, flipped=False, last_move=None):
     try:
-        square_size = 96
-        margin = 34
+        square_size = 80
+        margin = 28
         board_px = square_size * 8
         canvas = _board_background(square_size, margin)
         overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
@@ -626,7 +785,7 @@ def render_puzzle_board(board, flipped=False, last_move=None):
                 )
 
         output = io.BytesIO()
-        canvas.convert("RGB").save(output, format="JPEG", quality=92, subsampling=0)
+        canvas.convert("RGB").save(output, format="JPEG", quality=88, optimize=True, subsampling=1)
         output.name = "puzzle.jpg"
         output.seek(0)
         return output
@@ -1002,7 +1161,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         board = get_puzzle_board(puzzle_data) if puzzle_data else None
         if not puzzle_data or board is None:
             finish_puzzle(chat_id)
-            await safe_edit(query, "❌ تعذّر جلب اللغز من Lichess، حاول مجدداً.")
+            reason = LAST_PUZZLE_ERROR if not puzzle_data else "بيانات اللغز غير صالحة"
+            text = "❌ تعذّر جلب اللغز."
+            if reason:
+                text += f"\nالسبب: {escape(reason)}"
+            text += "\n🔁 جرّب /puzzle تاني بعد شوية."
+            await safe_edit(query, text, parse_mode="HTML")
             return
 
         solution_moves = puzzle_data["puzzle"].get("solution") or []
@@ -1025,8 +1189,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         save_puzzles()
         schedule_puzzle_timeout(context, update.effective_chat.id, time_limit)
+        # تعبئة المخزون في الخلفية للألغاز القادمة
+        asyncio.create_task(asyncio.to_thread(prefetch_pool, 2))
 
-        board_img = render_puzzle_board(board, flipped=not player_is_white)
+        board_img = await asyncio.to_thread(render_puzzle_board, board, not player_is_white)
         if board_img is None:
             finish_puzzle(chat_id)
             await safe_edit(query, "❌ فشل في توليد صورة الرقعة.")
@@ -1254,7 +1420,9 @@ async def handle_puzzle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE
             "ما هي نقلتك التالية؟"
         )
 
-    board_img = render_puzzle_board(board, flipped=not player_white, last_move=last_move)
+    board_img = await asyncio.to_thread(
+        render_puzzle_board, board, not player_white, last_move
+    )
     if board_img is None:
         await msg.reply_text(caption, parse_mode="HTML")
     else:
@@ -1860,6 +2028,37 @@ async def migratehere(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("ℹ️ لا توجد بيانات قديمة تحتاج إلى نقل، أو تم النقل مسبقًا.")
 
 
+async def diag(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """فحص سريع لحالة الشبكة والمخزون والصور (للمالك)."""
+    set_active_chat(update.effective_chat.id)
+    if update.effective_user.id != OWNER_ID:
+        return
+    notice = await update.effective_message.reply_text("🔎 جارٍ الفحص...")
+
+    started = time.time()
+    data, error = await asyncio.to_thread(_request_puzzle)
+    lichess = f"✅ سليم ({round(time.time() - started, 1)}ث)" if data else f"❌ {error}"
+    if data:
+        await asyncio.to_thread(pool_add, data)
+
+    rating = await get_elo_async("hikaru")
+    chesscom = "✅ سليم" if isinstance(rating.get("blitz"), int) else f"❌ {rating.get('blitz')}"
+
+    counts = await asyncio.to_thread(pool_counts)
+    pool_text = " | ".join(f"{band}: {count}" for band, count in counts.items())
+    pieces = len([n for n in os.listdir(PIECE_DIR)]) if os.path.isdir(PIECE_DIR) else 0
+
+    await notice.edit_text(
+        "🧪 <b>فحص النظام</b>\n━━━━━━━━━━━━━━\n"
+        f"🌐 Lichess: {escape(lichess)}\n"
+        f"♟️ Chess.com: {escape(chesscom)}\n"
+        f"📦 مخزون الألغاز: {escape(pool_text)}\n"
+        f"🎨 صور القطع: {pieces}/12\n"
+        f"💾 مجلد البيانات: <code>{escape(DATA_DIR)}</code>",
+        parse_mode="HTML",
+    )
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.exception("خطأ أثناء معالجة التحديث: %s", context.error)
     if isinstance(update, Update) and update.effective_message:
@@ -1875,7 +2074,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 KNOWN_COMMANDS = {
     "start", "help", "puzzle", "solution", "migratehere", "sign", "elo",
     "points", "top", "dailytop", "unlink", "promotepoints", "removepoints",
-    "play", "result", "grant", "profile", "removebadge",
+    "play", "result", "grant", "profile", "removebadge", "diag",
 }
 
 
@@ -1901,7 +2100,14 @@ class PuzzleMoveFilter(filters.MessageFilter):
 
 async def on_startup(application: Application):
     """تنزيل صور القطع مرة واحدة عند تشغيل البوت (في الخلفية)."""
-    await asyncio.to_thread(download_piece_images)
+    async def warm_up():
+        await asyncio.to_thread(download_piece_images)
+        # تسخين ذاكرة الرسم: أول لغز يظهر فوراً بدل الانتظار
+        await asyncio.to_thread(render_puzzle_board, chess.Board())
+        await asyncio.to_thread(prefetch_pool, 6)
+        log.info("التجهيز اكتمل: الصور والمخزون جاهزان.")
+
+    asyncio.create_task(warm_up())
 
 
 def build_application() -> Application:
@@ -1925,6 +2131,7 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("grant", grant))
     application.add_handler(CommandHandler("profile", profile))
     application.add_handler(CommandHandler("removebadge", removebadge))
+    application.add_handler(CommandHandler("diag", diag))
 
     application.add_handler(CallbackQueryHandler(button_handler))
 
