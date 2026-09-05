@@ -1,7 +1,5 @@
 
 
-print(">>> FILE IS RUNNING <<<")
-
 import os
 import io
 import re
@@ -41,14 +39,16 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("checkmate-bot")
 
 # =========================
-# الإعدادات (لا تضع التوكن داخل الكود أبداً)
+# الإعدادات
 # =========================
-TOKEN = os.environ.get("8953879123:AAFtuZZoHSrHlf7b7037fJYAyWsPYjeDyI4", "").strip()
+# ⚠️ التوكن مكتوب هنا مباشرة بناءً على طلبك.
+#    الأفضل أمنياً استخدام متغير البيئة BOT_TOKEN، والكود يفضّله تلقائياً لو كان موجوداً.
+#    لا تشارك هذا الملف مع أي شخص طالما التوكن بداخله.
+DEFAULT_TOKEN = "8953879123:AAFtuZZoHSrHlf7b7037fJYAyWsPYjeDyI4"
+
+TOKEN = os.environ.get("BOT_TOKEN", "").strip() or DEFAULT_TOKEN
 if not TOKEN:
-    raise SystemExit(
-        "❌ متغير البيئة BOT_TOKEN غير موجود.\n"
-        '   استخدم:  export BOT_TOKEN="التوكن_الجديد"'
-    )
+    raise SystemExit("❌ لا يوجد توكن. ضع التوكن في DEFAULT_TOKEN أو في متغير البيئة BOT_TOKEN.")
 
 try:
     OWNER_ID = int(os.environ.get("OWNER_ID", "6785722062"))
