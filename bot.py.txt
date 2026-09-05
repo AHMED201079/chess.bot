@@ -18,7 +18,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters
 
 # التوكن كـ Placeholder آمن
-TOKEN = "YOUR_BOT_TOKEN_HERE"
+TOKEN = "8953879123:AAFtuZZoHSrHlf7b7037fJYAyWsPYjeDyI4"
 OWNER_ID = 6785722062
 
 DATA_FILE = "users.json"
