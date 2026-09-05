@@ -1,8 +1,10 @@
-
+print(">>> FILE IS RUNNING <<<")
 
 import os
 import io
 import re
+import math
+import random
 import json
 import time
 import uuid
@@ -17,7 +19,7 @@ from html import escape
 import requests
 import chess
 import chess.pgn
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatType
@@ -328,7 +330,7 @@ def get_puzzle_board(data):
         return None
 
 
-# --- رسم الرقعة ---
+# --- رسم الرقعة (قطع احترافية + خشب) ---
 _PIECE_FONT_CACHE = {}
 UNICODE_PIECES = {
     "P": "\u265f", "N": "\u265e", "B": "\u265d",
@@ -336,7 +338,6 @@ UNICODE_PIECES = {
 }
 FONT_CANDIDATES = [
     "/system/fonts/NotoSansSymbols2-Regular.ttf",
-    "/system/fonts/DroidSansFallback.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
     "/data/data/com.termux/files/usr/share/fonts/TTF/DejaVuSans.ttf",
@@ -344,12 +345,102 @@ FONT_CANDIDATES = [
     "/System/Library/Fonts/Apple Symbols.ttf",
 ]
 
+# طقم قطع Cburnett الاحترافي (نفس المستخدم في Lichess) من ويكيميديا
+PIECE_FILES = {
+    "K": "Chess_klt45.svg", "Q": "Chess_qlt45.svg", "R": "Chess_rlt45.svg",
+    "B": "Chess_blt45.svg", "N": "Chess_nlt45.svg", "P": "Chess_plt45.svg",
+    "k": "Chess_kdt45.svg", "q": "Chess_qdt45.svg", "r": "Chess_rdt45.svg",
+    "b": "Chess_bdt45.svg", "n": "Chess_ndt45.svg", "p": "Chess_pdt45.svg",
+}
+PIECE_DIR = os.path.join(DATA_DIR, "pieces")
+PIECE_SOURCE = "https://commons.wikimedia.org/wiki/Special:FilePath/{name}?width=240"
+
+_PIECE_IMG_CACHE = {}
+_BOARD_BG_CACHE = {}
+
+# ألوان الخشب
+WOOD_LIGHT = (222, 184, 135)
+WOOD_DARK = (133, 87, 52)
+WOOD_FRAME = (74, 46, 26)
+WOOD_FRAME_EDGE = (110, 72, 42)
+HIGHLIGHT = (246, 220, 90)
+
+
+def _piece_path(symbol):
+    prefix = "w" if symbol.isupper() else "b"
+    return os.path.join(PIECE_DIR, f"{prefix}{symbol.upper()}.png")
+
+
+def download_piece_images(force=False):
+    """ينزّل صور القطع مرة واحدة ويخزنها محلياً. يُنفَّذ في خيط منفصل."""
+    os.makedirs(PIECE_DIR, exist_ok=True)
+    all_ok = True
+    for symbol, name in PIECE_FILES.items():
+        path = _piece_path(symbol)
+        if not force and os.path.exists(path) and os.path.getsize(path) > 500:
+            continue
+        try:
+            response = requests.get(
+                PIECE_SOURCE.format(name=name),
+                headers={"User-Agent": USER_AGENT},
+                timeout=HTTP_TIMEOUT,
+            )
+            if response.status_code == 200 and response.content[:4] == b"\x89PNG":
+                with open(path, "wb") as handle:
+                    handle.write(response.content)
+            else:
+                all_ok = False
+        except (requests.RequestException, OSError) as exc:
+            log.warning("تعذّر تنزيل صورة القطعة %s: %s", symbol, exc)
+            all_ok = False
+    if all_ok:
+        log.info("صور القطع جاهزة في %s", PIECE_DIR)
+    return all_ok
+
+
+def _piece_image(symbol, size):
+    key = (symbol, size)
+    if key in _PIECE_IMG_CACHE:
+        return _PIECE_IMG_CACHE[key]
+    path = _piece_path(symbol)
+    if not os.path.exists(path):
+        return None
+    try:
+        image = Image.open(path).convert("RGBA")
+        image = image.resize((size, size), Image.LANCZOS)
+    except (OSError, ValueError):
+        return None
+    _PIECE_IMG_CACHE[key] = image
+    return image
+
+
+_SPRITE_CACHE = {}
+
+
+def _piece_sprite(symbol, size):
+    """قطعة جاهزة بظل مدمج مسبقاً (يُحسب مرة واحدة فقط)."""
+    key = (symbol, size)
+    if key in _SPRITE_CACHE:
+        return _SPRITE_CACHE[key]
+    base = _piece_image(symbol, size)
+    if base is None:
+        return None
+    pad = 6
+    sprite = Image.new("RGBA", (size + pad * 2, size + pad * 2), (0, 0, 0, 0))
+    shadow = Image.new("RGBA", sprite.size, (0, 0, 0, 0))
+    shadow.paste((0, 0, 0, 110), (pad, pad + 4), base.split()[3])
+    shadow = shadow.filter(ImageFilter.GaussianBlur(3.5))
+    sprite.alpha_composite(shadow)
+    sprite.alpha_composite(base, (pad, pad))
+    _SPRITE_CACHE[key] = sprite
+    return sprite
+
 
 def _load_piece_font(size):
-    """يبحث عن خط يدعم رموز الشطرنج؛ وإلا يستخدم الحروف كبديل."""
+    """خط احتياطي لرموز الشطرنج لو تعذّر تنزيل صور القطع."""
     if size in _PIECE_FONT_CACHE:
         return _PIECE_FONT_CACHE[size]
-    result = (None, False)  # (font, unicode_supported)
+    result = (None, False)
     for path in FONT_CANDIDATES:
         if not os.path.exists(path):
             continue
@@ -369,20 +460,100 @@ def _load_piece_font(size):
     return result
 
 
+def _wood_tile(size, base, seed):
+    """يولّد مربعاً بملمس خشبي واقعي (عروق + تدرج)."""
+    rnd = random.Random(seed)
+    tile = Image.new("RGB", (size, size), base)
+    draw = ImageDraw.Draw(tile)
+
+    for _ in range(int(size * 1.6)):
+        y0 = rnd.uniform(-size * 0.1, size * 1.1)
+        shade = rnd.randint(-18, 14)
+        color = tuple(max(0, min(255, channel + shade)) for channel in base)
+        amplitude = rnd.uniform(1.0, 4.0)
+        frequency = rnd.uniform(0.8, 2.4)
+        phase = rnd.uniform(0, 6.28)
+        points = []
+        steps = 10
+        for index in range(steps + 1):
+            x = size * index / steps
+            y = y0 + math.sin(phase + frequency * math.pi * index / steps) * amplitude
+            points.append((x, y))
+        draw.line(points, fill=color, width=rnd.choice([1, 1, 2]))
+
+    # عقد خشبية خفيفة
+    for _ in range(rnd.randint(0, 2)):
+        cx, cy = rnd.uniform(0, size), rnd.uniform(0, size)
+        for ring in range(rnd.randint(3, 6)):
+            radius = 3 + ring * rnd.uniform(2.5, 4.5)
+            shade = rnd.randint(-22, -6)
+            color = tuple(max(0, min(255, channel + shade)) for channel in base)
+            draw.ellipse(
+                [cx - radius, cy - radius * 0.7, cx + radius, cy + radius * 0.7],
+                outline=color, width=1,
+            )
+
+    tile = tile.filter(ImageFilter.GaussianBlur(0.7))
+
+    # إضاءة ناعمة من أعلى اليسار
+    shading = Image.new("L", (size, size))
+    shade_draw = ImageDraw.Draw(shading)
+    for i in range(size):
+        shade_draw.line([(0, i), (size, i)], fill=int(128 + 26 * (1 - i / size)))
+    tile = Image.composite(
+        ImageEnhance.Brightness(tile).enhance(1.08),
+        ImageEnhance.Brightness(tile).enhance(0.94),
+        shading,
+    )
+    return tile
+
+
+def _board_background(square_size, margin):
+    """خلفية الرقعة (إطار خشبي + مربعات) مع تخزين مؤقت لتسريع الرسم."""
+    key = (square_size, margin)
+    if key in _BOARD_BG_CACHE:
+        return _BOARD_BG_CACHE[key].copy()
+
+    board_px = square_size * 8
+    total = board_px + margin * 2
+    canvas = Image.new("RGB", (total, total), WOOD_FRAME)
+
+    frame = _wood_tile(total, WOOD_FRAME, seed=999)
+    canvas.paste(frame, (0, 0))
+
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle([0, 0, total - 1, total - 1], outline=WOOD_FRAME_EDGE, width=3)
+
+    for rank in range(8):
+        for file in range(8):
+            base = WOOD_LIGHT if (rank + file) % 2 == 0 else WOOD_DARK
+            tile = _wood_tile(square_size, base, seed=rank * 8 + file)
+            if (rank + file) % 3 == 0:
+                tile = tile.transpose(Image.ROTATE_180)
+            canvas.paste(tile, (margin + file * square_size, margin + rank * square_size))
+
+    # ظل داخلي حول الرقعة ليبدو الإطار بارزاً
+    draw.rectangle(
+        [margin - 3, margin - 3, margin + board_px + 2, margin + board_px + 2],
+        outline=(52, 32, 18), width=3,
+    )
+    draw.rectangle(
+        [margin - 1, margin - 1, margin + board_px, margin + board_px],
+        outline=(158, 116, 74), width=1,
+    )
+
+    _BOARD_BG_CACHE[key] = canvas
+    return canvas.copy()
+
+
 def render_puzzle_board(board, flipped=False, last_move=None):
     try:
-        board_size = 720
-        square_size = board_size // 8
-        light = (240, 217, 181)
-        dark = (181, 136, 99)
-        highlight = (246, 246, 105)
-
-        image = Image.new("RGB", (board_size, board_size), light)
-        draw = ImageDraw.Draw(image)
-
-        highlighted = set()
-        if last_move is not None:
-            highlighted = {last_move.from_square, last_move.to_square}
+        square_size = 96
+        margin = 34
+        board_px = square_size * 8
+        canvas = _board_background(square_size, margin)
+        overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
 
         def to_xy(square):
             file_index = chess.square_file(square)
@@ -390,48 +561,76 @@ def render_puzzle_board(board, flipped=False, last_move=None):
             if flipped:
                 file_index = 7 - file_index
                 rank_index = 7 - rank_index
-            return file_index * square_size, (7 - rank_index) * square_size
+            return margin + file_index * square_size, margin + (7 - rank_index) * square_size
 
-        for square in chess.SQUARES:
-            x, y = to_xy(square)
-            is_dark = (chess.square_file(square) + chess.square_rank(square)) % 2 == 0
-            color = dark if is_dark else light
-            if square in highlighted:
-                color = highlight
-            draw.rectangle([x, y, x + square_size, y + square_size], fill=color)
+        # إبراز آخر نقلة
+        if last_move is not None:
+            for square in (last_move.from_square, last_move.to_square):
+                x, y = to_xy(square)
+                overlay_draw.rectangle(
+                    [x, y, x + square_size - 1, y + square_size - 1],
+                    fill=HIGHLIGHT + (110,),
+                )
 
-        piece_font, unicode_ok = _load_piece_font(int(square_size * 0.86))
-        label_font, _ = _load_piece_font(int(square_size * 0.22))
+        # إبراز الملك في حالة كش
+        if board.is_check():
+            king_square = board.king(board.turn)
+            if king_square is not None:
+                x, y = to_xy(king_square)
+                overlay_draw.ellipse(
+                    [x + 4, y + 4, x + square_size - 5, y + square_size - 5],
+                    fill=(220, 60, 50, 90),
+                )
+
+        canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay)
+
+        piece_px = int(square_size * 0.86)
+        offset = (square_size - piece_px) // 2
+        font_fallback = None
 
         for square, piece in board.piece_map().items():
             x, y = to_xy(square)
-            symbol = UNICODE_PIECES[piece.symbol().upper()] if unicode_ok else piece.symbol().upper()
-            fill = (250, 250, 250) if piece.color == chess.WHITE else (25, 25, 25)
-            outline = (25, 25, 25) if piece.color == chess.WHITE else (245, 245, 245)
+            sprite = _piece_sprite(piece.symbol(), piece_px)
+            if sprite is not None:
+                canvas.alpha_composite(sprite, (x + offset - 6, y + offset - 4))
+            else:
+                if font_fallback is None:
+                    font_fallback = _load_piece_font(int(square_size * 0.82))
+                font, unicode_ok = font_fallback
+                symbol = UNICODE_PIECES[piece.symbol().upper()] if unicode_ok else piece.symbol().upper()
+                fill = (250, 250, 250) if piece.color == chess.WHITE else (25, 25, 25)
+                stroke = (25, 25, 25) if piece.color == chess.WHITE else (240, 240, 240)
+                draw = ImageDraw.Draw(canvas)
+                bbox = draw.textbbox((0, 0), symbol, font=font)
+                tx = x + (square_size - (bbox[2] - bbox[0])) / 2 - bbox[0]
+                ty = y + (square_size - (bbox[3] - bbox[1])) / 2 - bbox[1]
+                draw.text((tx, ty), symbol, font=font, fill=fill, stroke_width=2, stroke_fill=stroke)
 
-            bbox = draw.textbbox((0, 0), symbol, font=piece_font)
-            text_w = bbox[2] - bbox[0]
-            text_h = bbox[3] - bbox[1]
-            tx = x + (square_size - text_w) / 2 - bbox[0]
-            ty = y + (square_size - text_h) / 2 - bbox[1]
-            draw.text((tx, ty), symbol, font=piece_font, fill=fill,
-                      stroke_width=2, stroke_fill=outline)
-
-        # إحداثيات الرقعة
+        # إحداثيات محفورة على الإطار
+        label_font, _ = _load_piece_font(int(margin * 0.62))
+        label_draw = ImageDraw.Draw(canvas)
         for i in range(8):
-            file_letter = chess.FILE_NAMES[7 - i if flipped else i]
-            rank_number = str((i + 1) if flipped else (8 - i))
-            draw.text((i * square_size + 5, board_size - 24), file_letter,
-                      font=label_font, fill=(90, 70, 50))
-            draw.text((5, i * square_size + 5), rank_number,
-                      font=label_font, fill=(90, 70, 50))
+            letter = chess.FILE_NAMES[7 - i if flipped else i]
+            number = str((i + 1) if flipped else (8 - i))
+            cx = margin + i * square_size + square_size / 2
+            cy = margin + i * square_size + square_size / 2
+            for text, pos in (
+                (letter, (cx, margin + board_px + margin / 2)),
+                (letter, (cx, margin / 2)),
+                (number, (margin / 2, cy)),
+                (number, (margin + board_px + margin / 2, cy)),
+            ):
+                label_draw.text(
+                    pos, text, font=label_font, fill=(238, 216, 186),
+                    anchor="mm", stroke_width=1, stroke_fill=(48, 30, 16),
+                )
 
         output = io.BytesIO()
-        output.name = "puzzle.png"
-        image.save(output, format="PNG")
+        canvas.convert("RGB").save(output, format="JPEG", quality=92, subsampling=0)
+        output.name = "puzzle.jpg"
         output.seek(0)
         return output
-    except Exception as exc:  # الرسم لا يجب أن يوقف البوت
+    except Exception as exc:
         log.exception("Puzzle render error: %s", exc)
         return None
 
@@ -450,6 +649,35 @@ def build_puzzle_message(difficulty, time_limit, wrong=0, rating=1500, turn_whit
         f"⚠️ المحاولات الخاطئة: <b>{wrong}/{MAX_WRONG_ATTEMPTS}</b>\n"
         "━━━━━━━━━━━━━━━━━━"
     )
+
+
+def format_solution(data):
+    """يحوّل نقلات الحل من صيغة UCI (b5d6) إلى الصيغة المقروءة SAN (Nxd6)."""
+    solution = (data or {}).get("solution") or []
+    if not solution:
+        return "لا يوجد"
+
+    start_fen = (data or {}).get("start_fen")
+    if not start_fen:
+        return " ➡️ ".join(solution)
+
+    try:
+        board = chess.Board(start_fen)
+    except ValueError:
+        return " ➡️ ".join(solution)
+
+    parts = []
+    for index, uci in enumerate(solution):
+        try:
+            move = chess.Move.from_uci(uci)
+            san = board.san(move)
+            board.push(move)
+        except (ValueError, AssertionError):
+            parts.extend(solution[index:])
+            break
+        # نقلات اللاعب في المواقع الزوجية، وردود الخصم في الفردية
+        parts.append(san if index % 2 == 0 else f"({san})")
+    return " ➡️ ".join(parts)
 
 
 def finish_puzzle(chat_id):
@@ -791,6 +1019,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "current_step": 0,
             "wrong_attempts": 0,
             "fen": board.fen(),
+            "start_fen": board.fen(),
             "rating": rating,
             "player_white": player_is_white,
         }
@@ -853,11 +1082,11 @@ async def puzzle_timeout_job(context: ContextTypes.DEFAULT_TYPE):
     data = puzzles.get(key)
     if not isinstance(data, dict) or data.get("status") != "active":
         return
-    solution = data.get("solution") or []
+    solution_text = format_solution(data)
     finish_puzzle(key)
     text = "⏱️ <b>انتهى وقت اللغز!</b>"
-    if solution:
-        text += f"\n📌 الحل الصحيح:\n<code>{escape(' ➡️ '.join(solution))}</code>"
+    if solution_text != "لا يوجد":
+        text += f"\n📌 الحل الصحيح:\n<code>{escape(solution_text)}</code>"
     try:
         await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
     except TelegramError:
@@ -904,8 +1133,7 @@ async def solution_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.effective_message.reply_text("❌ لا يوجد لغز نشط حالياً.")
         return
 
-    solution = data.get("solution") or []
-    text = escape(" ➡️ ".join(solution)) if solution else "لا يوجد"
+    text = escape(format_solution(data))
     finish_puzzle(chat_id)
     await update.effective_message.reply_text(
         f"🏁 <b>تم إنهاء اللغز بواسطة المالك.</b>\n📌 الحل الصحيح:\n<code>{text}</code>",
@@ -946,11 +1174,11 @@ async def handle_puzzle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     elapsed = (time.time() - float(current.get("started_at", 0))) / 60
     if elapsed > float(current.get("time_limit", 1)):
-        solution = current.get("solution") or []
+        solution_text = format_solution(current)
         finish_puzzle(chat_id)
         await msg.reply_text(
             "⏱️ <b>انتهى الوقت المحدد للغز!</b>\n"
-            f"📌 الحل كان:\n<code>{escape(' ➡️ '.join(solution))}</code>",
+            f"📌 الحل كان:\n<code>{escape(solution_text)}</code>",
             parse_mode="HTML",
         )
         return
@@ -978,10 +1206,11 @@ async def handle_puzzle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE
     if user_move != expected_move:
         current["wrong_attempts"] = int(current.get("wrong_attempts", 0)) + 1
         if current["wrong_attempts"] >= MAX_WRONG_ATTEMPTS:
+            solution_text = format_solution(current)
             finish_puzzle(chat_id)
             await msg.reply_text(
                 f"❌ <b>إجابة خاطئة!</b> استنفدت محاولاتك ({MAX_WRONG_ATTEMPTS}/{MAX_WRONG_ATTEMPTS}).\n"
-                f"🏁 انتهى اللغز. الحل الصحيح:\n<code>{escape(' ➡️ '.join(solution))}</code>",
+                f"🏁 انتهى اللغز. الحل الصحيح:\n<code>{escape(solution_text)}</code>",
                 parse_mode="HTML",
             )
         else:
@@ -1670,8 +1899,13 @@ class PuzzleMoveFilter(filters.MessageFilter):
         return bool(MOVE_SHAPE_RE.fullmatch(candidate))
 
 
+async def on_startup(application: Application):
+    """تنزيل صور القطع مرة واحدة عند تشغيل البوت (في الخلفية)."""
+    await asyncio.to_thread(download_piece_images)
+
+
 def build_application() -> Application:
-    application = Application.builder().token(TOKEN).build()
+    application = Application.builder().token(TOKEN).post_init(on_startup).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_cmd))
