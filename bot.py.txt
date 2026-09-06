@@ -46,7 +46,7 @@ log = logging.getLogger("checkmate-bot")
 # ⚠️ التوكن مكتوب هنا مباشرة بناءً على طلبك.
 #    الأفضل أمنياً استخدام متغير البيئة BOT_TOKEN، والكود يفضّله تلقائياً لو كان موجوداً.
 #    لا تشارك هذا الملف مع أي شخص طالما التوكن بداخله.
-DEFAULT_TOKEN = "8953879123:AAFtuZZoHSrHlf7b7037fJYAyWsPYjeDyI4"
+DEFAULT_TOKEN = "8953879123:AAHDV7MpdOCGndhpFKYNFXG7G1C1EddH3fw"
 
 TOKEN = os.environ.get("BOT_TOKEN", "").strip() or DEFAULT_TOKEN
 if not TOKEN:
