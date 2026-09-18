@@ -266,11 +266,18 @@ def migrate_legacy_here() -> bool:
 # ألغاز Lichess
 # =========================
 RATING_RANGES = {
-    "easy": (400, 1100),
-    "medium": (1100, 1600),
-    "hard": (1600, 2100),
-    "extreme": (2100, 3200),
+    "easy": (400, 1099),
+    "medium": (1100, 1599),
+    "hard": (1600, 2099),
+    "extreme": (2100, 4000),
 }
+
+# لو True: لا يُعرض أبداً لغز مستواه مختلف عن المستوى المختار.
+STRICT_DIFFICULTY = True
+# عدد محاولات السحب من Lichess بحثاً عن المستوى المطلوب
+PUZZLE_FETCH_ATTEMPTS = 12
+# أقصى زمن (ثانية) للبحث عن لغز مطابق قبل اللجوء للمخزون
+PUZZLE_FETCH_BUDGET = 18.0
 
 
 PUZZLE_POOL_FILE = _p("puzzle_pool.json")
@@ -306,14 +313,50 @@ def http_session():
 
 
 def rating_band(rating):
+    """يُرجع اسم المستوى المطابق للتقييم، أو None لو التقييم غير معروف."""
     try:
         rating = int(rating)
     except (TypeError, ValueError):
-        return "medium"
+        return None
     for name, (low, high) in RATING_RANGES.items():
         if low <= rating <= high:
             return name
-    return "extreme" if rating > 3200 else "easy"
+    if rating < RATING_RANGES["easy"][0]:
+        return "easy"
+    return "extreme"
+
+
+def puzzle_rating(data):
+    """يستخرج تقييم اللغز الحقيقي، أو None لو مفقود/غير رقمي."""
+    try:
+        rating = (data or {}).get("puzzle", {}).get("rating")
+    except AttributeError:
+        return None
+    if rating is None:
+        return None
+    try:
+        return int(rating)
+    except (TypeError, ValueError):
+        return None
+
+
+def puzzle_band(data):
+    """مستوى اللغز الفعلي المحسوب من تقييمه (None لو غير معروف)."""
+    return rating_band(puzzle_rating(data))
+
+
+def puzzle_matches(data, difficulty):
+    """التحقق النهائي: هل اللغز يطابق المستوى المطلوب 100%؟"""
+    if not data or difficulty not in RATING_RANGES:
+        return False
+    rating = puzzle_rating(data)
+    if rating is None:
+        return False          # تقييم مجهول = مرفوض في الوضع الصارم
+    low, high = RATING_RANGES[difficulty]
+    if not (low <= rating <= high):
+        return False
+    solution = (data.get("puzzle") or {}).get("solution") or []
+    return bool(data.get("fen") or data.get("game")) and bool(solution)
 
 
 def _load_pool():
@@ -339,11 +382,13 @@ def _save_pool(pool):
 
 
 def pool_add(data):
-    """يخزّن أي لغز يصل من Lichess ليُستخدم لاحقاً بدون إنترنت."""
+    """يخزّن اللغز في دلو مستواه الحقيقي فقط (الألغاز مجهولة التقييم تُهمَل)."""
     try:
         puzzle_id = data["puzzle"]["id"]
-        band = rating_band(data["puzzle"].get("rating", 1500))
     except (KeyError, TypeError):
+        return
+    band = puzzle_band(data)
+    if band is None:
         return
     with _POOL_LOCK:
         pool = _load_pool()
@@ -357,15 +402,42 @@ def pool_add(data):
 
 
 def pool_take(difficulty):
+    """يسحب لغزاً من المخزون بعد التأكد أن مستواه الحقيقي = المستوى المطلوب."""
+    if difficulty not in RATING_RANGES:
+        return None
     with _POOL_LOCK:
         pool = _load_pool()
-        bucket = pool.get(difficulty) or []
+        bucket = list(pool.get(difficulty) or [])
         if not bucket:
             return None
-        data = bucket.pop(random.randrange(len(bucket)))
-        pool[difficulty] = bucket
+
+        random.shuffle(bucket)
+        chosen = None
+        keep = []
+        misplaced = []
+        for item in bucket:
+            if chosen is None and puzzle_matches(item, difficulty):
+                chosen = item
+                continue
+            # عناصر لا تطابق المستوى: تُنقل لدلوها الصحيح أو تُحذف
+            band = puzzle_band(item)
+            if band == difficulty:
+                keep.append(item)
+            elif band is not None:
+                misplaced.append((band, item))
+
+        pool[difficulty] = keep
+        for band, item in misplaced:
+            other = pool.setdefault(band, [])
+            if not any(
+                (i.get("puzzle") or {}).get("id") == (item.get("puzzle") or {}).get("id")
+                for i in other
+            ):
+                other.append(item)
+            if len(other) > POOL_MAX_PER_BAND:
+                del other[: len(other) - POOL_MAX_PER_BAND]
         _save_pool(pool)
-        return data
+        return chosen
 
 
 def pool_counts():
@@ -406,15 +478,35 @@ def _request_puzzle():
         return None, "رد غير صالح من Lichess"
 
 
-def prefetch_pool(count=4):
-    """تعبئة المخزون في الخلفية حتى تعمل المستويات الصعبة فوراً."""
-    if sum(pool_counts().values()) >= POOL_MAX_PER_BAND:
+POOL_TARGET_PER_BAND = 6
+
+
+def prefetch_pool(count=4, difficulty=None):
+    """تعبئة المخزون في الخلفية حتى يتوفر كل مستوى فوراً.
+
+    لو كل المستويات وصلت الحد المطلوب لا يتم أي طلب.
+    """
+    counts = pool_counts()
+    if difficulty in RATING_RANGES:
+        if counts.get(difficulty, 0) >= POOL_TARGET_PER_BAND:
+            return
+    elif all(counts.get(band, 0) >= POOL_TARGET_PER_BAND for band in RATING_RANGES):
         return
-    for _ in range(count):
+
+    added = 0
+    for _ in range(max(count, 1) * 4):
+        if added >= count:
+            return
         data, _err = _request_puzzle()
         if data is None:
             return
+        band = puzzle_band(data)
+        if band is None:
+            continue
+        before = pool_counts().get(band, 0)
         pool_add(data)
+        if pool_counts().get(band, 0) > before:
+            added += 1
         time.sleep(3)
 
 
@@ -441,9 +533,25 @@ def _load_offline_bundle():
 
 
 def offline_puzzle(difficulty):
-    """يأخذ لغزاً من المخزون الاحتياطي مع تجنّب تكرار ما سبق عرضه."""
+    """يأخذ لغزاً من المخزون الاحتياطي بشرط تطابق تقييمه مع المستوى المطلوب.
+
+    لا نعتمد على مفتاح الملف (قد يكون التصنيف فيه خاطئاً) بل على rating نفسه،
+    ونفحص كل الدلاء لالتقاط أي لغز مصنَّف خطأً في مكان آخر.
+    """
+    if difficulty not in RATING_RANGES:
+        return None
     bundle = _load_offline_bundle()
-    items = bundle.get(difficulty) or []
+    low, high = RATING_RANGES[difficulty]
+
+    items = []
+    for bucket in (bundle or {}).values():
+        for item in bucket or []:
+            try:
+                rating = int(item.get("rating"))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if low <= rating <= high and item.get("fen") and item.get("solution"):
+                items.append(item)
     if not items:
         return None
 
@@ -508,54 +616,75 @@ def chesscom_puzzle():
 
 def fetch_lichess_puzzle(difficulty="medium"):
     """
-    يجلب لغزاً بالمستوى المطلوب: من المخزون المحلي أولاً، ثم من Lichess.
-    يُنفَّذ في خيط منفصل — لا يحجب حلقة الأحداث.
+    يجلب لغزاً **بنفس المستوى المطلوب فقط**.
+
+    ترتيب المصادر: المخزون المحلي ← Lichess (محاولات متعددة) ← المخزون الاحتياطي.
+    كل لغز يمر على puzzle_matches() قبل إرجاعه، ولو ما توفّرش لغز مطابق
+    يرجّع None مع رسالة واضحة — ولا يرجّع أبداً لغزاً بمستوى مختلف.
     """
     global LAST_PUZZLE_ERROR
     LAST_PUZZLE_ERROR = ""
 
+    if difficulty not in RATING_RANGES:
+        LAST_PUZZLE_ERROR = "مستوى غير معروف"
+        return None
+
+    low, high = RATING_RANGES[difficulty]
+
+    def accept(data, source):
+        if puzzle_matches(data, difficulty):
+            log.info(
+                "لغز %s من %s برصيد %s (النطاق %s-%s)",
+                difficulty, source, puzzle_rating(data), low, high,
+            )
+            return True
+        return False
+
+    # 1) المخزون المحلي (مفلتر بالتقييم)
     cached = pool_take(difficulty)
-    if cached is not None:
+    if accept(cached, "المخزون المحلي"):
         return cached
 
-    fallback = None
+    # 2) Lichess: نكرر السحب ونخزّن غير المطابق لحين الحاجة
     last_error = ""
-    for attempt in range(3):
+    deadline = time.time() + PUZZLE_FETCH_BUDGET
+    for attempt in range(PUZZLE_FETCH_ATTEMPTS):
+        if time.time() > deadline:
+            break
         data, error = _request_puzzle()
         if data is None:
             last_error = error
             if "موقوف" in error or "أوقف" in error:
                 break
-            time.sleep(0.8 * (attempt + 1))
+            time.sleep(min(0.6 * (attempt + 1), 2.0))
             continue
 
-        band = rating_band(data.get("puzzle", {}).get("rating", 1500))
-        if band == difficulty:
+        if accept(data, "Lichess"):
             return data
-        pool_add(data)
-        if fallback is None:
-            fallback = data
+        pool_add(data)          # مستوى مختلف → للمخزون، مش للمستخدم
+        time.sleep(0.35)
 
+    # 3) المخزون المحلي مرة أخرى (اتغذّى من المحاولات السابقة)
     cached = pool_take(difficulty)
-    if cached is not None:
+    if accept(cached, "المخزون المحلي"):
         return cached
 
-    # المصدر الاحتياطي الأول: مخزون محلي دائم بنفس المستوى المطلوب
+    # 4) المخزون الاحتياطي الدائم (مفلتر بالتقييم الحقيقي)
     offline = offline_puzzle(difficulty)
-    if offline is not None:
-        log.info("تم تقديم لغز من المخزون الاحتياطي (%s).", difficulty)
+    if accept(offline, "المخزون الاحتياطي"):
         return offline
 
-    # المصدر الاحتياطي الثاني: chess.com
-    external = chesscom_puzzle()
-    if external is not None:
-        log.info("تم تقديم لغز من chess.com.")
-        return external
+    # 5) chess.com: تقييمه غير معروف رسمياً، فلا يُستخدم في الوضع الصارم
+    if not STRICT_DIFFICULTY:
+        external = chesscom_puzzle()
+        if external is not None:
+            log.info("تم تقديم لغز من chess.com (وضع غير صارم).")
+            return external
 
-    if fallback is not None:
-        return fallback
-
-    LAST_PUZZLE_ERROR = last_error or "تعذّر الوصول إلى أي مصدر ألغاز"
+    LAST_PUZZLE_ERROR = (
+        last_error
+        or f"مفيش لغز متاح حالياً بمستوى {difficulty.upper()} ({low}-{high})"
+    )
     return None
 
 
@@ -904,10 +1033,12 @@ def render_puzzle_board(board, flipped=False, last_move=None):
 
 def build_puzzle_message(difficulty, time_limit, wrong=0, rating=1500, turn_white=True):
     side = "الأبيض" if turn_white else "الأسود"
+    low, high = RATING_RANGES.get(difficulty, (0, 0))
     return (
         "\u265f\ufe0f <b>CHECK MATE PUZZLE</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        f"🎯 <b>المستوى:</b> {escape(difficulty.upper())} (Rating: {rating})\n"
+        f"🎯 <b>المستوى:</b> {escape(difficulty.upper())} "
+        f"(Rating: {rating} — النطاق {low}-{high})\n"
         f"♟️ <b>الدور على:</b> {side}\n"
         f"⏱️ <b>الوقت الكلي:</b> {time_limit} دقيقة\n\n"
         "🧠 <b>أرسل النقلة الصحيحة.</b>\n"
@@ -1266,10 +1397,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_edit(query, "⏳ جاري جلب اللغز وتوليد الرقعة...")
 
         puzzle_data = await asyncio.to_thread(fetch_lichess_puzzle, difficulty)
+        # بوابة أمان أخيرة: لو اللغز مش مطابق للمستوى المختار يُرفض تماماً
+        mismatch_note = ""
+        if puzzle_data is not None and not puzzle_matches(puzzle_data, difficulty):
+            log.warning(
+                "رفض لغز غير مطابق: مطلوب %s / التقييم %s",
+                difficulty, puzzle_rating(puzzle_data),
+            )
+            puzzle_data = None
+            mismatch_note = f"مفيش لغز مطابق لمستوى {difficulty.upper()} دلوقتي"
+        else:
+            mismatch_note = ""
         board = get_puzzle_board(puzzle_data) if puzzle_data else None
         if not puzzle_data or board is None:
             finish_puzzle(chat_id)
-            reason = LAST_PUZZLE_ERROR if not puzzle_data else "بيانات اللغز غير صالحة"
+            reason = (
+                mismatch_note or LAST_PUZZLE_ERROR
+                if not puzzle_data
+                else "بيانات اللغز غير صالحة"
+            )
             text = "❌ تعذّر جلب اللغز."
             if reason:
                 text += f"\nالسبب: {escape(reason)}"
@@ -1298,7 +1444,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_puzzles()
         schedule_puzzle_timeout(context, update.effective_chat.id, time_limit)
         # تعبئة المخزون في الخلفية للألغاز القادمة
-        asyncio.create_task(asyncio.to_thread(prefetch_pool, 2))
+        asyncio.create_task(asyncio.to_thread(prefetch_pool, 2, difficulty))
 
         board_img = await asyncio.to_thread(render_puzzle_board, board, not player_is_white)
         if board_img is None:
