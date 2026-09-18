@@ -265,19 +265,25 @@ def migrate_legacy_here() -> bool:
 # =========================
 # ألغاز Lichess
 # =========================
+# نطاقات الإيلو الفعلية للألغاز (الحد الأعلى المذكور داخل مستواه، والمستوى
+# التالي يبدأ بعده بنقطة واحدة حتى لا يحتمل أي لغز مستويين)
 RATING_RANGES = {
-    "easy": (400, 1099),
-    "medium": (1100, 1599),
-    "hard": (1600, 2099),
-    "extreme": (2100, 4000),
+    "easy": (500, 1200),      # 500 → 1200
+    "medium": (1201, 1800),   # 1200 → 1800
+    "hard": (1801, 2100),     # 1800 → 2100
+    "extreme": (2101, 2500),  # 2100 → 2500
 }
 
 # لو True: لا يُعرض أبداً لغز مستواه مختلف عن المستوى المختار.
 STRICT_DIFFICULTY = True
-# عدد محاولات السحب من Lichess بحثاً عن المستوى المطلوب
-PUZZLE_FETCH_ATTEMPTS = 12
-# أقصى زمن (ثانية) للبحث عن لغز مطابق قبل اللجوء للمخزون
-PUZZLE_FETCH_BUDGET = 18.0
+# عدد محاولات السحب من Lichess (قليلة عن قصد — المصدر الأساسي محلي)
+PUZZLE_FETCH_ATTEMPTS = 3
+# أقصى زمن (ثانية) للبحث عن لغز مطابق من الشبكة
+PUZZLE_FETCH_BUDGET = 12.0
+# أقل فاصل زمني بين أي طلبين لـ Lichess (يمنع كود 429)
+MIN_REQUEST_INTERVAL = 6.0
+# توكن Lichess اختياري (يرفع سقف الطلبات): export LICHESS_TOKEN=...
+LICHESS_TOKEN = os.environ.get("LICHESS_TOKEN", "").strip()
 
 
 PUZZLE_POOL_FILE = _p("puzzle_pool.json")
@@ -295,6 +301,8 @@ def http_session():
     if _HTTP_SESSION is None:
         session = requests.Session()
         session.headers.update({"User-Agent": USER_AGENT, "Accept": "application/json"})
+        if LICHESS_TOKEN:
+            session.headers["Authorization"] = f"Bearer {LICHESS_TOKEN}"
         try:
             from requests.adapters import HTTPAdapter
             from urllib3.util.retry import Retry
@@ -321,9 +329,8 @@ def rating_band(rating):
     for name, (low, high) in RATING_RANGES.items():
         if low <= rating <= high:
             return name
-    if rating < RATING_RANGES["easy"][0]:
-        return "easy"
-    return "extreme"
+    # أي تقييم خارج النطاقات المعتمدة يُرفض (مثلاً أقل من 500 أو أعلى من 2500)
+    return None
 
 
 def puzzle_rating(data):
@@ -445,12 +452,26 @@ def pool_counts():
     return {band: len(pool.get(band) or []) for band in RATING_RANGES}
 
 
+_LAST_REQUEST_AT = 0.0
+_REQUEST_LOCK = threading.RLock()
+
+
+def lichess_paused_for():
+    """الثواني المتبقية من فترة التهدئة (0 لو مفيش تهدئة)."""
+    return max(0, int(RATE_LIMITED_UNTIL - time.time()))
+
+
 def _request_puzzle():
-    """طلب واحد من Lichess. يُرجع (data, error_text)."""
-    global RATE_LIMITED_UNTIL
+    """طلب واحد من Lichess مع تنظيم المعدّل. يُرجع (data, error_text)."""
+    global RATE_LIMITED_UNTIL, _LAST_REQUEST_AT
     remaining = RATE_LIMITED_UNTIL - time.time()
     if remaining > 0:
         return None, f"Lichess موقوف مؤقتاً — انتظر {int(remaining)} ثانية"
+    with _REQUEST_LOCK:
+        gap = time.time() - _LAST_REQUEST_AT
+        if gap < MIN_REQUEST_INTERVAL:
+            time.sleep(MIN_REQUEST_INTERVAL - gap)
+        _LAST_REQUEST_AT = time.time()
     try:
         response = http_session().get(
             "https://lichess.org/api/puzzle/next", timeout=HTTP_TIMEOUT
@@ -465,9 +486,9 @@ def _request_puzzle():
     if response.status_code == 429:
         try:
             wait = int(response.headers.get("Retry-After", RATE_LIMIT_COOLDOWN))
-        except ValueError:
+        except (TypeError, ValueError):
             wait = RATE_LIMIT_COOLDOWN
-        wait = max(wait, RATE_LIMIT_COOLDOWN)
+        wait = max(min(wait, 900), 60)
         RATE_LIMITED_UNTIL = time.time() + wait
         return None, f"Lichess أوقف الطلبات مؤقتاً — انتظر {wait} ثانية"
     if response.status_code != 200:
@@ -486,6 +507,10 @@ def prefetch_pool(count=4, difficulty=None):
 
     لو كل المستويات وصلت الحد المطلوب لا يتم أي طلب.
     """
+    # لو المخزون الاحتياطي الدائم كافٍ فلا داعي لأي طلب شبكة
+    if offline_counts(difficulty if difficulty in RATING_RANGES else None):
+        return
+
     counts = pool_counts()
     if difficulty in RATING_RANGES:
         if counts.get(difficulty, 0) >= POOL_TARGET_PER_BAND:
@@ -510,26 +535,87 @@ def prefetch_pool(count=4, difficulty=None):
         time.sleep(3)
 
 
-OFFLINE_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "puzzles_offline.json"
-)
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# كل ملفات الألغاز المحلية — أضف أي ملف جديد للقائمة وسيُدمج تلقائياً
+OFFLINE_FILES = [
+    os.path.join(_BASE_DIR, "puzzles_offline.json"),
+    os.path.join(_BASE_DIR, "puzzles_offline_2.json"),
+]
+OFFLINE_FILE = OFFLINE_FILES[0]
 OFFLINE_USED_FILE = _p("offline_used.json")
 _OFFLINE_CACHE = None
 
 
 def _load_offline_bundle():
-    """1200 لغز مُدقّق من قاعدة بيانات Lichess — يعمل بدون إنترنت نهائياً."""
+    """يدمج كل ملفات الألغاز المحلية المدقّقة — يعمل بدون إنترنت نهائياً."""
     global _OFFLINE_CACHE
     if _OFFLINE_CACHE is None:
-        try:
-            with open(OFFLINE_FILE, "r", encoding="utf-8") as handle:
-                _OFFLINE_CACHE = json.load(handle)
-            total = sum(len(v) for v in _OFFLINE_CACHE.values())
-            log.info("المخزون الاحتياطي جاهز: %d لغز", total)
-        except (OSError, json.JSONDecodeError):
-            log.warning("ملف puzzles_offline.json غير موجود — المصدر الاحتياطي معطّل.")
-            _OFFLINE_CACHE = {}
+        merged = {}
+        seen = set()
+        loaded = 0
+        for path in OFFLINE_FILES:
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    bundle = json.load(handle)
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(bundle, dict):
+                continue
+            loaded += 1
+            for band, items in bundle.items():
+                target = merged.setdefault(band, [])
+                for item in items or []:
+                    pid = (item or {}).get("id")
+                    if pid and pid in seen:
+                        continue
+                    if pid:
+                        seen.add(pid)
+                    target.append(item)
+        if not loaded:
+            log.warning("مفيش أي ملف ألغاز محلي (puzzles_offline*.json) — المصدر الاحتياطي معطّل.")
+        else:
+            log.info(
+                "المخزون الاحتياطي جاهز: %d لغز من %d ملف",
+                sum(len(v) for v in merged.values()), loaded,
+            )
+        _OFFLINE_CACHE = merged
     return _OFFLINE_CACHE
+
+
+_OFFLINE_BY_BAND = None
+
+
+def _offline_by_band():
+    """يعيد تصنيف كل ألغاز الملف الاحتياطي حسب التقييم الحقيقي (مرة واحدة)."""
+    global _OFFLINE_BY_BAND
+    if _OFFLINE_BY_BAND is None:
+        table = {band: [] for band in RATING_RANGES}
+        bundle = _load_offline_bundle() or {}
+        for bucket in bundle.values():
+            for item in bucket or []:
+                try:
+                    rating = int(item.get("rating"))
+                except (TypeError, ValueError, AttributeError):
+                    continue
+                if not (item.get("fen") and item.get("solution")):
+                    continue
+                band = rating_band(rating)
+                if band in table:
+                    table[band].append(item)
+        _OFFLINE_BY_BAND = table
+        log.info(
+            "المخزون الاحتياطي حسب المستوى: %s",
+            {b: len(v) for b, v in table.items()},
+        )
+    return _OFFLINE_BY_BAND
+
+
+def offline_counts(difficulty=None):
+    """عدد الألغاز المتاحة محلياً (لمستوى معيّن أو أقل عدد بين كل المستويات)."""
+    table = _offline_by_band()
+    if difficulty in RATING_RANGES:
+        return len(table.get(difficulty) or [])
+    return min((len(v) for v in table.values()), default=0)
 
 
 def offline_puzzle(difficulty):
@@ -540,18 +626,7 @@ def offline_puzzle(difficulty):
     """
     if difficulty not in RATING_RANGES:
         return None
-    bundle = _load_offline_bundle()
-    low, high = RATING_RANGES[difficulty]
-
-    items = []
-    for bucket in (bundle or {}).values():
-        for item in bucket or []:
-            try:
-                rating = int(item.get("rating"))
-            except (TypeError, ValueError, AttributeError):
-                continue
-            if low <= rating <= high and item.get("fen") and item.get("solution"):
-                items.append(item)
+    items = _offline_by_band().get(difficulty) or []
     if not items:
         return None
 
@@ -581,6 +656,150 @@ def offline_puzzle(difficulty):
             "id": chosen.get("id", "offline"),
             "rating": chosen.get("rating", 1500),
             "solution": chosen.get("solution", []),
+        },
+    }
+
+
+# =========================
+# THE WOODPECKER METHOD
+# =========================
+WOODPECKER_FILE = os.path.join(_BASE_DIR, "woodpecker.json")
+WP_TOTAL = 1128
+# (الاسم، الرمز، أول لغز، آخر لغز)
+WP_LEVELS = {
+    "wp1": ("المستوى الأول", "\U0001F7E9", 1, 222),
+    "wp2": ("المستوى الثاني", "\U0001F7E8", 223, 984),
+    "wp3": ("المستوى الثالث", "\U0001F7E5", 985, 1128),
+    "wpall": ("الكتاب كامل", "\U0001F4DA", 1, 1128),
+}
+WP_SEEN_FILE = _p("woodpecker_seen.json")
+_WP_CACHE = None
+_WP_LOCK = threading.RLock()
+
+
+def wp_bundle():
+    """يحمّل ألغاز الكتاب مرة واحدة: {level: [items]} مرتبة برقم اللغز."""
+    global _WP_CACHE
+    if _WP_CACHE is None:
+        table = {key: [] for key in WP_LEVELS}
+        try:
+            with open(WOODPECKER_FILE, "r", encoding="utf-8") as handle:
+                raw = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            log.warning("ملف woodpecker.json غير موجود — وضع Woodpecker معطّل.")
+            _WP_CACHE = table
+            return _WP_CACHE
+
+        flat = []
+        for items in (raw or {}).values():
+            for item in items or []:
+                try:
+                    number = int(item.get("number"))
+                except (TypeError, ValueError, AttributeError):
+                    continue
+                if not (item.get("fen") and item.get("solution")):
+                    continue
+                flat.append(item)
+        flat.sort(key=lambda x: int(x["number"]))
+        for item in flat:
+            number = int(item["number"])
+            for key, (_name, _icon, low, high) in WP_LEVELS.items():
+                if low <= number <= high:
+                    table[key].append(item)
+        _WP_CACHE = table
+        log.info(
+            "Woodpecker جاهز: %s",
+            {k: len(v) for k, v in table.items()},
+        )
+    return _WP_CACHE
+
+
+def wp_available():
+    return len(wp_bundle().get("wpall") or [])
+
+
+def _wp_seen_load():
+    try:
+        with open(WP_SEEN_FILE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _wp_seen_save(data):
+    try:
+        directory = os.path.dirname(WP_SEEN_FILE) or "."
+        fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False)
+        os.replace(tmp, WP_SEEN_FILE)
+    except OSError as exc:
+        log.warning("تعذّر حفظ تقدّم Woodpecker: %s", exc)
+
+
+def wp_seen(user_id):
+    """أرقام الألغاز التي ظهرت لهذا اللاعب سابقاً (لا تظهر له تاني)."""
+    return set(_wp_seen_load().get(str(user_id)) or [])
+
+
+def wp_mark_seen(user_id, number):
+    with _WP_LOCK:
+        data = _wp_seen_load()
+        key = str(user_id)
+        seen = set(data.get(key) or [])
+        seen.add(int(number))
+        data[key] = sorted(seen)
+        _wp_seen_save(data)
+
+
+def wp_reset(user_id, level=None):
+    """تصفير التقدّم (لمستوى واحد أو للكتاب كله)."""
+    with _WP_LOCK:
+        data = _wp_seen_load()
+        key = str(user_id)
+        seen = set(data.get(key) or [])
+        if level in WP_LEVELS and level != "wpall":
+            _name, _icon, low, high = WP_LEVELS[level]
+            seen = {n for n in seen if not (low <= n <= high)}
+        else:
+            seen = set()
+        data[key] = sorted(seen)
+        _wp_seen_save(data)
+
+
+def wp_progress(user_id, level):
+    """(عدد اللي ظهر، إجمالي المتاح) لهذا المستوى."""
+    items = wp_bundle().get(level) or []
+    if not items:
+        return 0, 0
+    numbers = {int(x["number"]) for x in items}
+    return len(numbers & wp_seen(user_id)), len(numbers)
+
+
+def wp_take(user_id, level):
+    """لغز عشوائي من المستوى لم يظهر للاعب قبل كده (ويُسجَّل فوراً)."""
+    items = wp_bundle().get(level) or []
+    if not items:
+        return None
+    seen = wp_seen(user_id)
+    available = [x for x in items if int(x["number"]) not in seen]
+    if not available:
+        return None
+    chosen = random.choice(available)
+    wp_mark_seen(user_id, chosen["number"])
+    return chosen
+
+
+def wp_to_puzzle(item):
+    """يحوّل لغز الكتاب لنفس صيغة ألغاز البوت."""
+    return {
+        "fen": item["fen"],
+        "source": "woodpecker",
+        "puzzle": {
+            "id": f"wp{item['number']}",
+            "rating": None,
+            "solution": list(item.get("solution") or []),
         },
     }
 
@@ -645,7 +864,12 @@ def fetch_lichess_puzzle(difficulty="medium"):
     if accept(cached, "المخزون المحلي"):
         return cached
 
-    # 2) Lichess: نكرر السحب ونخزّن غير المطابق لحين الحاجة
+    # 2) المخزون الاحتياطي الدائم (ملف puzzles_offline.json) — المصدر الأساسي
+    offline = offline_puzzle(difficulty)
+    if accept(offline, "المخزون الاحتياطي"):
+        return offline
+
+    # 3) Lichess: مصدر أخير فقط، بعدد طلبات قليل ومنظّم
     last_error = ""
     deadline = time.time() + PUZZLE_FETCH_BUDGET
     for attempt in range(PUZZLE_FETCH_ATTEMPTS):
@@ -664,15 +888,10 @@ def fetch_lichess_puzzle(difficulty="medium"):
         pool_add(data)          # مستوى مختلف → للمخزون، مش للمستخدم
         time.sleep(0.35)
 
-    # 3) المخزون المحلي مرة أخرى (اتغذّى من المحاولات السابقة)
+    # 4) المخزون المحلي مرة أخرى (اتغذّى من المحاولات السابقة)
     cached = pool_take(difficulty)
     if accept(cached, "المخزون المحلي"):
         return cached
-
-    # 4) المخزون الاحتياطي الدائم (مفلتر بالتقييم الحقيقي)
-    offline = offline_puzzle(difficulty)
-    if accept(offline, "المخزون الاحتياطي"):
-        return offline
 
     # 5) chess.com: تقييمه غير معروف رسمياً، فلا يُستخدم في الوضع الصارم
     if not STRICT_DIFFICULTY:
@@ -681,10 +900,17 @@ def fetch_lichess_puzzle(difficulty="medium"):
             log.info("تم تقديم لغز من chess.com (وضع غير صارم).")
             return external
 
-    LAST_PUZZLE_ERROR = (
-        last_error
-        or f"مفيش لغز متاح حالياً بمستوى {difficulty.upper()} ({low}-{high})"
-    )
+    if offline_counts(difficulty) == 0:
+        LAST_PUZZLE_ERROR = (
+            f"ملفات الألغاز المحلية مفيهاش ألغاز لمستوى {difficulty.upper()} "
+            f"({low}-{high}) — تأكد إن puzzles_offline.json موجود جانب ملف البوت"
+        )
+    else:
+        paused = lichess_paused_for()
+        LAST_PUZZLE_ERROR = last_error or (
+            f"مفيش لغز متاح حالياً بمستوى {difficulty.upper()} ({low}-{high})"
+            + (f" — Lichess في تهدئة {paused} ثانية" if paused else "")
+        )
     return None
 
 
@@ -1040,7 +1266,7 @@ def build_puzzle_message(difficulty, time_limit, wrong=0, rating=1500, turn_whit
         f"🎯 <b>المستوى:</b> {escape(difficulty.upper())} "
         f"(Rating: {rating} — النطاق {low}-{high})\n"
         f"♟️ <b>الدور على:</b> {side}\n"
-        f"⏱️ <b>الوقت الكلي:</b> {time_limit} دقيقة\n\n"
+        f"⏱️ <b>الوقت الكلي:</b> {time_limit} {minutes_word(time_limit)}\n\n"
         "🧠 <b>أرسل النقلة الصحيحة.</b>\n"
         "📌 تُقبل الصيغتان:\n"
         "<code>Rc5</code> أو <code>/Rc5</code> أو <code>c1c5</code>\n\n"
@@ -1109,7 +1335,82 @@ def puzzle_difficulty_keyboard():
             InlineKeyboardButton("🔴 Hard", callback_data="puzzle_hard"),
             InlineKeyboardButton("⚫ Extreme", callback_data="puzzle_extreme"),
         ],
+        # زر بالعرض الكامل لكتاب الألغاز
+        [InlineKeyboardButton("🪵 THE WOODPECKER METHOD", callback_data="woodpecker")],
     ])
+
+
+def woodpecker_levels_keyboard(user_id):
+    """قائمة مستويات الكتاب مع تقدّم اللاعب في كل مستوى."""
+    rows = []
+    for key in ("wp1", "wp2", "wp3"):
+        name, icon, low, high = WP_LEVELS[key]
+        done, total = wp_progress(user_id, key)
+        rows.append([InlineKeyboardButton(
+            f"{icon} {name} ({low}-{high}) • {done}/{total}",
+            callback_data=f"wp_{key}",
+        )])
+    name, icon, low, high = WP_LEVELS["wpall"]
+    done, total = wp_progress(user_id, "wpall")
+    rows.append([InlineKeyboardButton(
+        f"{icon} {name} ({low}-{high}) • {done}/{total}",
+        callback_data="wp_wpall",
+    )])
+    rows.append([
+        InlineKeyboardButton("♻️ تصفير التقدّم", callback_data="wpreset_wpall"),
+        InlineKeyboardButton("🔙 رجوع", callback_data="wpback"),
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def wp_time_keyboard(level):
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("⏱️ 1 دقيقة", callback_data=f"wptime_{level}_1"),
+            InlineKeyboardButton("⏱️ 3 دقائق", callback_data=f"wptime_{level}_3"),
+        ],
+        [
+            InlineKeyboardButton("⏱️ 5 دقائق", callback_data=f"wptime_{level}_5"),
+            InlineKeyboardButton("⏱️ 10 دقائق", callback_data=f"wptime_{level}_10"),
+        ],
+        [InlineKeyboardButton("🔙 رجوع للمستويات", callback_data="woodpecker")],
+    ])
+
+
+WOODPECKER_HEADER = (
+    "\U0001FAB5 <b>THE WOODPECKER METHOD</b>\n"
+    "━━━━━━━━━━━━━━━━━━\n"
+)
+
+
+def minutes_word(count):
+    count = int(count)
+    if count == 1:
+        return "دقيقة"
+    if count == 2:
+        return "دقيقتين"
+    if 3 <= count <= 10:
+        return "دقائق"
+    return "دقيقة"
+
+
+def build_wp_message(item, level, time_limit, wrong=0, done=0, total=0, turn_white=True):
+    name, icon, low, high = WP_LEVELS.get(level, ("", "", 1, WP_TOTAL))
+    side = "الأبيض" if turn_white else "الأسود"
+    moves = len(item.get("solution") or [])
+    return (
+        WOODPECKER_HEADER
+        + f"📖 <b>اللغز رقم {item['number']}</b> من {WP_TOTAL} في الكتاب\n"
+        + f"{icon} <b>{escape(name)}</b> (ألغاز {low}-{high})\n"
+        + f"♟️ <b>الدور على:</b> {side}\n"
+        + f"🧩 <b>عدد نقلات الحل:</b> {moves}\n"
+        + f"⏱️ <b>الوقت الكلي:</b> {time_limit} {minutes_word(time_limit)}\n"
+        + f"📊 <b>تقدّمك:</b> {done}/{total}\n\n"
+        + "🧠 <b>أرسل النقلة الصحيحة.</b>\n"
+        + "📌 تُقبل الصيغتان: <code>Rc5</code> أو <code>c1c5</code>\n"
+        + f"⚠️ المحاولات الخاطئة: <b>{wrong}/{MAX_WRONG_ATTEMPTS}</b>\n"
+        + "━━━━━━━━━━━━━━━━━━"
+    )
 
 
 def puzzle_time_keyboard(difficulty):
@@ -1464,6 +1765,174 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return
 
+    # ---------- THE WOODPECKER METHOD ----------
+    if data == "woodpecker":
+        if wp_available() == 0:
+            await safe_edit(
+                query,
+                "❌ ملف <code>woodpecker.json</code> غير موجود جانب ملف البوت.",
+                parse_mode="HTML",
+            )
+            return
+        current = puzzles.get(chat_id)
+        if isinstance(current, dict) and current.get("owner_id") != user_id:
+            await query.answer("هناك لغز جارٍ يخص لاعباً آخر.", show_alert=True)
+            return
+        done_all, total_all = wp_progress(user_id, "wpall")
+        await safe_edit(
+            query,
+            WOODPECKER_HEADER
+            + "\n📚 <b>1128 لغز من كتاب Woodpecker Method</b>\n"
+            + "🎯 اختر المستوى:\n\n"
+            + f"📊 تقدّمك الكلي: <b>{done_all}/{total_all}</b>\n"
+            + "🔁 اللغز اللي ظهر لك مرة مايتكرّرش تاني.",
+            parse_mode="HTML",
+            reply_markup=woodpecker_levels_keyboard(user_id),
+        )
+        return
+
+    if data == "wpback":
+        await safe_edit(
+            query,
+            "\u265f\ufe0f <b>CHECK MATE PUZZLE</b>\n━━━━━━━━━━━━━━━━━━\n\n🎯 اختر مستوى اللغز:",
+            parse_mode="HTML",
+            reply_markup=puzzle_difficulty_keyboard(),
+        )
+        return
+
+    if data.startswith("wpreset_"):
+        level = data[len("wpreset_"):]
+        await asyncio.to_thread(wp_reset, user_id, level)
+        await query.answer("تم تصفير تقدّمك في الكتاب.", show_alert=True)
+        done_all, total_all = wp_progress(user_id, "wpall")
+        await safe_edit(
+            query,
+            WOODPECKER_HEADER
+            + "\n♻️ <b>تم تصفير التقدّم.</b>\n"
+            + f"📊 تقدّمك الكلي: <b>{done_all}/{total_all}</b>\n\n🎯 اختر المستوى:",
+            parse_mode="HTML",
+            reply_markup=woodpecker_levels_keyboard(user_id),
+        )
+        return
+
+    if data.startswith("wp_"):
+        level = data[len("wp_"):]
+        if level not in WP_LEVELS:
+            return
+        current = puzzles.get(chat_id)
+        if isinstance(current, dict) and current.get("owner_id") != user_id:
+            await query.answer("هناك لغز جارٍ يخص لاعباً آخر.", show_alert=True)
+            return
+        name, icon, low, high = WP_LEVELS[level]
+        done, total = wp_progress(user_id, level)
+        if total and done >= total:
+            await safe_edit(
+                query,
+                WOODPECKER_HEADER
+                + f"\n🎉 <b>خلّصت {escape(name)} بالكامل!</b> ({done}/{total})\n"
+                + "اضغط تصفير التقدّم لو عايز تعيدها من الأول.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("♻️ تصفير هذا المستوى", callback_data=f"wpreset_{level}")],
+                    [InlineKeyboardButton("🔙 رجوع للمستويات", callback_data="woodpecker")],
+                ]),
+            )
+            return
+        await safe_edit(
+            query,
+            WOODPECKER_HEADER
+            + f"\n{icon} <b>{escape(name)}</b> (ألغاز {low}-{high})\n"
+            + f"📊 تقدّمك: <b>{done}/{total}</b>\n\n⏱️ اختر وقت اللغز:",
+            parse_mode="HTML",
+            reply_markup=wp_time_keyboard(level),
+        )
+        return
+
+    if data.startswith("wptime_"):
+        parts = data.split("_")
+        if len(parts) != 3:
+            return
+        level = parts[1]
+        try:
+            time_limit = int(parts[2])
+        except ValueError:
+            return
+        if level not in WP_LEVELS:
+            return
+
+        current = puzzles.get(chat_id)
+        if isinstance(current, dict) and current.get("owner_id") != user_id:
+            await query.answer("هناك لغز جارٍ يخص لاعباً آخر.", show_alert=True)
+            return
+
+        await safe_edit(query, "⏳ جاري تحضير لغز الكتاب وتوليد الرقعة...")
+
+        item = await asyncio.to_thread(wp_take, user_id, level)
+        if item is None:
+            done, total = wp_progress(user_id, level)
+            await safe_edit(
+                query,
+                WOODPECKER_HEADER
+                + f"\n🎉 مفيش ألغاز جديدة في المستوى ده ({done}/{total}).",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("♻️ تصفير هذا المستوى", callback_data=f"wpreset_{level}")],
+                    [InlineKeyboardButton("🔙 رجوع للمستويات", callback_data="woodpecker")],
+                ]),
+            )
+            return
+
+        puzzle_data = wp_to_puzzle(item)
+        board = get_puzzle_board(puzzle_data)
+        if board is None:
+            await safe_edit(
+                query,
+                f"❌ اللغز رقم {item['number']} بياناته غير صالحة — جرّب تاني.",
+            )
+            return
+
+        player_is_white = board.turn == chess.WHITE
+        done, total = wp_progress(user_id, level)
+        puzzles[chat_id] = {
+            "status": "active",
+            "owner_id": user_id,
+            "difficulty": WP_LEVELS[level][0],
+            "source": "woodpecker",
+            "wp_level": level,
+            "wp_number": int(item["number"]),
+            "time_limit": time_limit,
+            "started_at": time.time(),
+            "solution": list(item.get("solution") or []),
+            "current_step": 0,
+            "wrong_attempts": 0,
+            "fen": board.fen(),
+            "start_fen": board.fen(),
+            "rating": None,
+            "player_white": player_is_white,
+        }
+        save_puzzles()
+        schedule_puzzle_timeout(context, update.effective_chat.id, time_limit)
+
+        board_img = await asyncio.to_thread(render_puzzle_board, board, not player_is_white)
+        if board_img is None:
+            finish_puzzle(chat_id)
+            await safe_edit(query, "❌ فشل في توليد صورة الرقعة.")
+            return
+
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=board_img,
+            caption=build_wp_message(
+                item, level, time_limit, 0, done, total, player_is_white
+            ),
+            parse_mode="HTML",
+        )
+        try:
+            await query.message.delete()
+        except TelegramError:
+            pass
+        return
+
     if data == "back":
         await safe_edit(query, START_TEXT, parse_mode="HTML", reply_markup=start_keyboard())
     elif data == "top_points":
@@ -1595,10 +2064,14 @@ async def handle_puzzle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE
     elapsed = (time.time() - float(current.get("started_at", 0))) / 60
     if elapsed > float(current.get("time_limit", 1)):
         solution_text = format_solution(current)
+        book_note = (
+            f"\n📖 لغز رقم {current.get('wp_number')} من {WP_TOTAL} في الكتاب"
+            if current.get("source") == "woodpecker" else ""
+        )
         finish_puzzle(chat_id)
         await msg.reply_text(
             "⏱️ <b>انتهى الوقت المحدد للغز!</b>\n"
-            f"📌 الحل كان:\n<code>{escape(solution_text)}</code>",
+            f"📌 الحل كان:\n<code>{escape(solution_text)}</code>{book_note}",
             parse_mode="HTML",
         )
         return
@@ -1665,6 +2138,14 @@ async def handle_puzzle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE
     if step >= len(solution):
         finish_puzzle(chat_id)
         caption = "🎉 <b>أحسنت! تم حل اللغز بالكامل بنجاح.</b> 🏆"
+        if current.get("source") == "woodpecker":
+            wp_done, wp_total = wp_progress(
+                current.get("owner_id"), current.get("wp_level", "wpall")
+            )
+            caption += (
+                f"\n📖 لغز رقم <b>{current.get('wp_number')}</b> من {WP_TOTAL} "
+                f"في THE WOODPECKER METHOD\n📊 تقدّمك: <b>{wp_done}/{wp_total}</b>"
+            )
     else:
         puzzles[chat_id] = current
         save_puzzles()
@@ -2300,8 +2781,9 @@ async def diag(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     counts = await asyncio.to_thread(pool_counts)
     pool_text = " | ".join(f"{band}: {count}" for band, count in counts.items())
-    bundle = await asyncio.to_thread(_load_offline_bundle)
-    offline_total = sum(len(v) for v in bundle.values())
+    per_band = await asyncio.to_thread(_offline_by_band)
+    offline_total = sum(len(v) for v in per_band.values())
+    offline_text = " | ".join(f"{band}: {len(items)}" for band, items in per_band.items())
     cc = await asyncio.to_thread(chesscom_puzzle)
     pieces = len([n for n in os.listdir(PIECE_DIR)]) if os.path.isdir(PIECE_DIR) else 0
 
@@ -2311,6 +2793,8 @@ async def diag(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"♟️ Chess.com: {escape(chesscom)}\n"
         f"📦 مخزون الألغاز: {escape(pool_text)}\n"
         f"🗄️ المخزون الاحتياطي: {offline_total} لغز\n"
+        f"    ↳ {escape(offline_text)}\n"
+        f"⏳ تهدئة Lichess: {lichess_paused_for()} ثانية\n"
         f"🔁 مصدر بديل (chess.com puzzle): {'✅ سليم' if cc else '❌ غير متاح'}\n"
         f"🎨 صور القطع: {pieces}/12\n"
         f"💾 مجلد البيانات: <code>{escape(DATA_DIR)}</code>",
